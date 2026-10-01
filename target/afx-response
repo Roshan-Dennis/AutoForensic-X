@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""afx-response: Wazuh active-response entry point for AutoForensic-X.
+
+Run by wazuh-execd as root. extra_args:
+  ["kill", "<pid>", "<expected_binary>"] | ["block", "<ip>"] | ["unblock", "<ip>"]
+All inputs are validated here; the caller (the SOC) is not trusted.
+Each result is appended as one JSON line to /var/log/afx-response.log and printed.
+"""
+import ipaddress
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+os.umask(0o077)
+LOG = "/var/log/afx-response.log"
+CHAINS = ("INPUT", "OUTPUT")
+NEVER_BLOCK = {"192.168.56.10", "192.168.56.101"}  # SOC and this host
+PROTECTED_COMM = ("wazuh-", "tetragon", "systemd")
+IPTABLES = next((p for p in ("/usr/sbin/iptables", "/sbin/iptables") if os.path.exists(p)), None)
+
+
+def emit(rec):
+    rec["afx"] = "response"
+    rec["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    line = json.dumps(rec, sort_keys=True)
+    with open(LOG, "a") as f:
+        f.write(line + "\n")
+    print(line)
+
+
+def ipt(*args):
+    p = subprocess.run([IPTABLES, "-w", "5", *args], capture_output=True, text=True, timeout=15)
+    return p.returncode, p.stderr.strip()
+
+
+def check_ip(value):
+    ip = ipaddress.ip_address(value)
+    if ip.is_loopback or ip.is_unspecified or ip.is_multicast or str(ip) in NEVER_BLOCK:
+        raise ValueError("refusing protected address " + str(ip))
+    return str(ip)
+
+
+def do_block(ip):
+    results = []
+    for chain in CHAINS:
+        flag = "-s" if chain == "INPUT" else "-d"
+        rc, _ = ipt("-C", chain, flag, ip, "-j", "DROP")
+        if rc == 0:
+            results.append({"chain": chain, "returncode": 0, "already": True})
+            continue
+        rc, err = ipt("-A", chain, flag, ip, "-j", "DROP")
+        results.append({"chain": chain, "returncode": rc, "stderr": err})
+    return {"ok": all(r["returncode"] == 0 for r in results), "ip": ip, "chains": results}
+
+
+def do_unblock(ip):
+    results = []
+    for chain in CHAINS:
+        flag = "-s" if chain == "INPUT" else "-d"
+        rc, err = ipt("-D", chain, flag, ip, "-j", "DROP")
+        results.append({"chain": chain, "returncode": rc, "stderr": err})
+    return {"ok": any(r["returncode"] == 0 for r in results), "ip": ip, "chains": results}
+
+
+def read(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def do_kill(pid_s, expected):
+    pid = int(pid_s)
+    if pid <= 1 or pid == os.getpid():
+        raise ValueError("refusing invalid or dangerously low pid")
+    try:
+        cmdline = read(f"/proc/{pid}/cmdline").replace(b"\x00", b" ").decode(errors="replace").strip()
+    except (FileNotFoundError, ProcessLookupError):
+        cmdline = ""
+    if not cmdline:
+        return {"ok": False, "outcome": "skip_kill", "pid": pid,
+                "detail": "process is not currently running - nothing to kill"}
+    comm = read(f"/proc/{pid}/comm").decode().strip()
+    ppid = next(int(l.split()[1]) for l in read(f"/proc/{pid}/status").decode().splitlines()
+                if l.startswith("PPid:"))
+    if comm.startswith(PROTECTED_COMM) or (comm == "sshd" and ppid == 1):
+        raise ValueError(f"refusing to kill protected process {comm} (pid {pid})")
+    exe = os.path.realpath(f"/proc/{pid}/exe").replace(" (deleted)", "")
+    if expected and exe != os.path.realpath(expected):
+        raise ValueError(f"pid {pid} is now {exe}, expected {expected}: pid reuse suspected")
+    os.kill(pid, signal.SIGKILL)
+    return {"ok": True, "outcome": "killed", "pid": pid, "cmdline": cmdline}
+
+
+def main():
+    msg = json.loads(sys.stdin.readline())
+    if msg.get("command") != "add":
+        return
+    args = msg.get("parameters", {}).get("extra_args", [])
+    rid = next((a[4:] for a in args if isinstance(a, str) and a.startswith("rid=")), None)
+    args = [a for a in args if not (isinstance(a, str) and a.startswith("rid="))]
+    rec = {"action": args[0] if args else None, "rid": rid}
+    try:
+        if IPTABLES is None and rec["action"] in ("block", "unblock"):
+            raise RuntimeError("iptables not found")
+        if rec["action"] == "block" and len(args) == 2:
+            rec.update(do_block(check_ip(args[1])))
+        elif rec["action"] == "unblock" and len(args) == 2:
+            rec.update(do_unblock(check_ip(args[1])))
+        elif rec["action"] == "kill" and len(args) in (2, 3):
+            rec.update(do_kill(args[1], args[2] if len(args) == 3 else None))
+        else:
+            raise ValueError("unknown action or wrong argument count")
+    except Exception as e:  # noqa: BLE001 - log every failure, never crash silently
+        rec.update({"ok": False, "outcome": "refused_or_failed", "detail": str(e)})
+    emit(rec)
+
+
+if __name__ == "__main__":
+    main()
