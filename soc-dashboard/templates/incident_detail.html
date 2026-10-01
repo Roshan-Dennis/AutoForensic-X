@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Incident{% endblock %}
+{% block heading %}{{ incident.title }}{% endblock %}
+{% block subheading %}Incident {{ incident.id }} · {{ incident.timestamp }}{% endblock %}
+
+{% block content %}
+{% if incident.source == 'graph' %}
+<div class="alert-banner">
+  This incident was surfaced by walking the process-ancestry graph (Tetragon), not by a Wazuh alert.
+  Wazuh generated no signature for this chain — it only exists here because the provenance graph
+  captured the parent/child relationship directly.
+</div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="panel">
+    <h2>Details</h2>
+    <table>
+      <tbody>
+        <tr><td class="muted">Severity</td><td><span class="badge {{ incident.severity }}">{{ incident.severity }}</span></td></tr>
+        <tr><td class="muted">Source</td><td><span class="badge source-{{ incident.source }}">{{ 'Wazuh' if incident.source == 'wazuh' else 'Graph-detected' }}</span></td></tr>
+        <tr><td class="muted">MITRE Technique</td><td class="mono">{{ incident.mitre_technique or '—' }}</td></tr>
+        <tr><td class="muted">MITRE Tactic</td><td>{{ incident.mitre_tactic or '—' }}</td></tr>
+        {% if incident.srcip %}<tr><td class="muted">Source IP</td><td><a href="/entity/ip/{{ incident.srcip }}">{{ incident.srcip }}</a></td></tr>{% endif %}
+        <tr><td class="muted">Corroborations</td><td>{{ incident.corroborations }} process(es)</td></tr>
+        {% if incident.entry_point %}<tr><td class="muted">Entry Point</td><td class="mono">{{ incident.entry_point }}</td></tr>{% endif %}
+        {% if incident.detail %}<tr><td class="muted">Command</td><td class="mono" style="word-break:break-all;">{{ incident.detail }}</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Triage Status</h2>
+    <p><span class="badge status-{{ status_info.status }}">{{ status_info.status.replace('_', ' ') }}</span></p>
+    <form method="post" action="/incidents/{{ incident.id }}/status" style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+      <select name="status">
+        {% for s in statuses %}
+          <option value="{{ s }}" {{ 'selected' if s == status_info.status }}>{{ s.replace('_', ' ')|capitalize }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="note" placeholder="Optional note for this status change">
+      <button class="btn primary" type="submit">Update Status</button>
+    </form>
+    {% if status_info.history %}
+    <div style="margin-top:14px; font-size:12px;">
+      {% for h in status_info.history|reverse %}
+      <div style="padding:6px 0; border-bottom:1px solid var(--border);">
+        <span class="badge status-{{ h.status }}">{{ h.status.replace('_', ' ') }}</span>
+        <span class="muted"> — {{ h.ts }}</span>
+        {% if h.note %}<div class="muted" style="margin-top:2px;">{{ h.note }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="panel">
+    <h2>Legend</h2>
+    <div class="legend">
+      <span><span class="legend-dot" style="background:#3ddc97;"></span>True entry point (no captured parent)</span>
+    </div>
+    <div class="legend">
+      <span><span class="legend-dot" style="background:#ef4b6a;"></span>This incident's focus process</span>
+    </div>
+    <p class="muted" style="font-size:12px; margin-top:10px;">Click any node to open its full entity page (process lineage, args, timestamps, and a Kill action if it's still running).</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Process Ancestry Chain</h2>
+  <div id="lineage-graph" class="graph-canvas"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/cytoscape.min.js"></script>
+<script src="/static/app.js"></script>
+<script>renderLineageGraph('lineage-graph', '/api/incidents/{{ incident.id }}/graph.json');</script>
+{% endblock %}

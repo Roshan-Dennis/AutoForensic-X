@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Process {{ exec_id }}{% endblock %}
+{% block heading %}Process Entity{% endblock %}
+{% block subheading %}exec_id {{ exec_id }}{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="alert-banner" style="border-color:#ef4b6a; background:rgba(239,75,106,0.1); color:#ef4b6a;">{{ error }}</div>
+{% endif %}
+
+{% for n in lineage.nodes %}{% if n.exec_id == exec_id %}
+<div class="panel">
+  <h2>Actions</h2>
+  <p class="muted" style="font-size:12px; margin-bottom:10px;">
+    Re-checks <span class="tag">/proc/{{ n.pid }}</span> before killing — if this process already exited
+    (or the pid was reused by something else), the kill is refused rather than acting on the wrong process.
+  </p>
+  <form method="post" action="/entity/process/{{ exec_id }}/kill" style="display:inline;">
+    <input type="hidden" name="pid" value="{{ n.pid }}">
+    <button class="btn danger" type="submit">Kill Process (pid {{ n.pid }})</button>
+  </form>
+</div>
+{% endif %}{% endfor %}
+
+<div class="panel">
+  <h2>Full Lineage</h2>
+  <div id="lineage-graph" class="graph-canvas"></div>
+  <div class="legend">
+    <span><span class="legend-dot" style="background:#3ddc97;"></span>Root (no captured parent)</span>
+    <span><span class="legend-dot" style="background:#ef4b6a;"></span>This process</span>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Processes In This Chain</h2>
+  {% if lineage.nodes %}
+  <table>
+    <thead><tr><th>exec_id</th><th>PID</th><th>UID</th><th>Binary</th><th>Arguments</th><th>Start</th></tr></thead>
+    <tbody>
+      {% for n in lineage.nodes %}
+      <tr class="linked" onclick="window.location='/entity/process/{{ n.exec_id }}'">
+        <td class="mono">{{ n.exec_id }}{% if n.exec_id == exec_id %} <span class="badge critical">focus</span>{% endif %}{% if n.exec_id == lineage.root_exec_id %} <span class="badge low">root</span>{% endif %}</td>
+        <td>{{ n.pid }}</td>
+        <td>{{ n.uid }}</td>
+        <td class="mono">{{ n.full_binary or n.binary }}</td>
+        <td class="mono" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ n.arguments or '—' }}</td>
+        <td class="muted">{{ n.start_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No process found for this exec_id.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/cytoscape.min.js"></script>
+<script src="/static/app.js"></script>
+<script>renderLineageGraph('lineage-graph', '/api/entity/process/{{ exec_id }}/graph.json');</script>
+{% endblock %}

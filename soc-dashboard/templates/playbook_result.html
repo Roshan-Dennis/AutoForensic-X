@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Playbook Run{% endblock %}
+{% block heading %}{{ label }} — {{ 'Dry Run' if result.dry_run else 'Live Run' }}{% endblock %}
+{% block subheading %}Exit code {{ result.returncode }}{% endblock %}
+
+{% block content %}
+{% if result.sudo_denied %}
+<div class="alert-banner">
+  sudo denied this run. Passwordless sudo for this exact script isn't configured for the dashboard process —
+  see the README's sudoers setup for the two <span class="tag">NOPASSWD</span> lines this needs.
+</div>
+{% elif result.returncode != 0 %}
+<div class="alert-banner" style="border-color:#ef4b6a; background:rgba(239,75,106,0.1); color:#ef4b6a;">
+  The playbook exited non-zero ({{ result.returncode }}) — see stderr below.
+</div>
+{% elif not result.dry_run %}
+<div class="alert-banner" style="border-color:#3ddc97; background:rgba(61,220,151,0.1); color:#3ddc97;">
+  Ran successfully. Whatever it decided to do (or skip) is now in <a href="/automation">Automation History</a>.
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>stdout</h2>
+  {% if result.stdout %}
+  <pre class="mono" style="white-space:pre-wrap; font-size:12px; line-height:1.5; max-height:500px; overflow-y:auto;">{{ result.stdout }}</pre>
+  {% else %}
+  <div class="empty-state">No output.</div>
+  {% endif %}
+</div>
+
+{% if result.stderr %}
+<div class="panel">
+  <h2>stderr</h2>
+  <pre class="mono" style="white-space:pre-wrap; font-size:12px; line-height:1.5; color:var(--sev-critical);">{{ result.stderr }}</pre>
+</div>
+{% endif %}
+
+<p><a href="/automation">&larr; Back to Automation History</a></p>
+{% endblock %}

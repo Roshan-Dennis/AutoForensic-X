@@ -25,16 +25,18 @@ Safety rules this playbook follows (per the project's SOAR design):
      written into Neo4j linked to the triggering alert.
   6. One-click undo — `--unblock <ip>` removes a previously-added rule.
 
-Run as root (or via sudo) because it needs to call iptables:
-    sudo -E $(which python3) soar_ssh_bruteforce.py
-    sudo -E $(which python3) soar_ssh_bruteforce.py --dry-run
-    sudo -E $(which python3) soar_ssh_bruteforce.py --unblock 192.168.56.104
+Run as the autoforensic user on the SOC VM (no sudo needed -- actions are sent remotely via the Wazuh API, not run locally):
+    python3 soar_ssh_bruteforce.py
+    python3 soar_ssh_bruteforce.py --dry-run
+    python3 soar_ssh_bruteforce.py --unblock 192.168.56.104
 """
 
 import argparse
 import ipaddress
 import json
 import subprocess
+
+import remote_action
 import sys
 from datetime import datetime, timezone
 
@@ -100,26 +102,30 @@ def find_bruteforce_candidates(driver):
         return [dict(record) for record in result]
 
 
+def _remote(action, *args):
+    """Run an action on the sensor via Wazuh; raise like subprocess check=True on failure."""
+    try:
+        res = remote_action.run(action, *args)
+    except remote_action.RemoteActionError as e:
+        raise subprocess.CalledProcessError(1, "afx-response " + action, stderr=str(e))
+    if not res.get("ok"):
+        raise subprocess.CalledProcessError(
+            1, "afx-response " + action, stderr=res.get("detail") or str(res))
+    return res
+
+
 def is_already_blocked(ip: str) -> bool:
-    result = subprocess.run(
-        ["sudo", "iptables", "-C", "INPUT", "-s", ip, "-j", "DROP"],
-        capture_output=True,
-    )
-    return result.returncode == 0
+    # The sensor-side block is idempotent (it checks before adding), so the SOC
+    # no longer inspects the sensor's firewall itself.
+    return False
 
 
 def block_ip(ip: str):
-    subprocess.run(
-        ["sudo", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"],
-        check=True,
-    )
+    _remote("block", ip)
 
 
 def unblock_ip(ip: str):
-    subprocess.run(
-        ["sudo", "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
-        check=True,
-    )
+    _remote("unblock", ip)
 
 
 def write_remediation_node(driver, ip: str, alert_ids: list, action: str):
@@ -146,6 +152,10 @@ def main():
                          help="Show what would happen, don't touch iptables or ask to confirm.")
     parser.add_argument("--unblock", metavar="IP",
                          help="Remove a previously-added DROP rule for this IP.")
+    parser.add_argument("--yes", action="store_true",
+                         help="Auto-approve every action instead of prompting for y/N. "
+                              "For programmatic/dashboard invocation only — interactive "
+                              "runs should keep leaving this off.")
     args = parser.parse_args()
 
     driver = GraphDatabase.driver(
@@ -214,7 +224,11 @@ def main():
             print("  --dry-run set: not executing, not asking for confirmation.")
             continue
 
-        answer = input(f"  Block {ip}? This is a destructive action. [y/N] ").strip().lower()
+        if args.yes:
+            answer = "y"
+            print(f"  Block {ip}? This is a destructive action. [y/N] y  (auto-approved via --yes)")
+        else:
+            answer = input(f"  Block {ip}? This is a destructive action. [y/N] ").strip().lower()
         if answer != "y":
             audit({"action": "skip", "ip": ip, "reason": "human_declined",
                    "alert_ids": alert_ids})
@@ -226,7 +240,7 @@ def main():
         audit({"action": "blocked", "ip": ip, "alert_ids": alert_ids,
                "failures": failures, "sshd_confirmations": sshd_confirmations})
         print(f"  BLOCKED {ip}. Logged to {AUDIT_LOG_PATH} and to Neo4j (Remediation node).")
-        print(f"  To undo: sudo -E $(which python3) soar_ssh_bruteforce.py --unblock {ip}")
+        print(f"  To undo: python3 soar_ssh_bruteforce.py --unblock {ip}")
 
     driver.close()
 

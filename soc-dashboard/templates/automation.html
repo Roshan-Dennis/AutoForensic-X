@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Automation History{% endblock %}
+{% block heading %}Automation History{% endblock %}
+{% block subheading %}Parsed live from soar_audit.log · {{ events|length }} event(s){% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="alert-banner" style="border-color:#ef4b6a; background:rgba(239,75,106,0.1); color:#ef4b6a;">{{ error }}</div>
+{% endif %}
+{% if blocks %}
+<div class="panel">
+  <h2>Currently Active Blocks</h2>
+  <table>
+    <thead><tr><th>IP</th><th>Since</th><th>Playbook</th><th></th></tr></thead>
+    <tbody>
+      {% for ip, b in blocks.items() %}
+      <tr>
+        <td class="mono"><a href="/entity/ip/{{ ip }}">{{ ip }}</a></td>
+        <td class="muted">{{ b.since }}</td>
+        <td class="mono">{{ b.playbook }}</td>
+        <td>
+          <form method="post" action="/automation/unblock" style="margin:0;">
+            <input type="hidden" name="ip" value="{{ ip }}">
+            <button class="btn danger" type="submit">Unblock</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="panel">
+    <h2>Manually Block an IP</h2>
+    <p class="muted" style="font-size:12px; margin-bottom:10px;">Blocks both INPUT and OUTPUT — a full quarantine, not tied to a playbook's detection pattern.</p>
+    <form method="post" action="/automation/block" style="display:flex; gap:8px;">
+      <input type="text" name="ip" placeholder="e.g. 192.168.56.104" style="flex:1;" required>
+      <button class="btn danger" type="submit">Block</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Run a Playbook</h2>
+    <p class="muted" style="font-size:12px; margin-bottom:10px;">Runs the real script (same corroboration + safety checks as the CLI) and shows its output. "Run Live" auto-approves every action it proposes.</p>
+    {% for name, pb in [('ssh_bruteforce', 'SSH Brute Force'), ('reverse_shell', 'Reverse Shell')] %}
+    <form method="post" action="/playbooks/run" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+      <input type="hidden" name="name" value="{{ name }}">
+      <span class="mono" style="flex:1;">{{ pb }}</span>
+      <button class="btn" type="submit" name="mode" value="dry_run">Dry-Run</button>
+      <button class="btn danger" type="submit" name="mode" value="live">Run Live</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Event Log</h2>
+  {% if events %}
+  <table>
+    <thead>
+      <tr><th>Timestamp</th><th>Playbook</th><th>Trigger / Evidence</th><th>Action</th><th>Status</th><th>Target</th></tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td class="muted">{{ e.ts }}</td>
+        <td class="mono">{{ e.playbook }}</td>
+        <td style="max-width:340px;">{{ e.evidence }}</td>
+        <td class="mono">{{ e.action_summary }}</td>
+        <td>
+          {% if e.status == 'applied' %}<span class="badge low">applied</span>
+          {% elif e.status == 'dry_run' %}<span class="badge medium">dry-run</span>
+          {% elif e.status == 'rejected' %}<span class="badge critical">rejected</span>
+          {% elif e.status == 'failed' %}<span class="badge critical">failed</span>
+          {% elif e.status == 'skipped' %}<span class="badge unknown">skipped</span>
+          {% else %}<span class="badge unknown">{{ e.status }}</span>{% endif %}
+        </td>
+        <td>
+          {% if e.ip %}<a href="/entity/ip/{{ e.ip }}" class="mono">{{ e.ip }}</a>{% else %}<span class="mono">{{ e.target }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No entries found in soar_audit.log yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

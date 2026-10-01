@@ -6,9 +6,10 @@ talking to Neo4j directly, so the graph schema lives in exactly one place.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
+from dateutil import parser as dateutil_parser
 from neo4j import GraphDatabase
 
 log = logging.getLogger("graph_writer")
@@ -16,14 +17,14 @@ log = logging.getLogger("graph_writer")
 
 def _parse_ts(ts: str) -> Optional[datetime]:
     """Best-effort ISO8601 parser — Tetragon and Wazuh both emit slightly
-    different timestamp formats, so this tolerates a trailing 'Z' and
-    varying fractional-second precision."""
+    different timestamp formats (nanosecond precision, offsets with no
+    colon), which Python's built-in fromisoformat is too strict for. This
+    dateutil parser handles nearly any real-world variant."""
     if not ts:
         return None
     try:
-        ts = ts.replace("Z", "+00:00")
-        return datetime.fromisoformat(ts)
-    except ValueError:
+        return dateutil_parser.isoparse(ts)
+    except (ValueError, OverflowError):
         log.warning("Could not parse timestamp: %r", ts)
         return None
 
