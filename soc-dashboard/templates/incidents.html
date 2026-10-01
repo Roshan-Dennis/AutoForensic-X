@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Incidents{% endblock %}
+{% block heading %}Incidents Queue{% endblock %}
+{% block subheading %}{{ incidents|length }} incident(s) matching current filters{% endblock %}
+
+{% block content %}
+<form class="filters" method="get" action="/incidents">
+  <select name="severity" onchange="this.form.submit()">
+    {% for s in ['all','critical','high','medium','low','unknown'] %}
+      <option value="{{ s }}" {{ 'selected' if filters.severity == s }}>{{ 'Severity: ' + s|capitalize if s != 'all' else 'All severities' }}</option>
+    {% endfor %}
+  </select>
+  <select name="source" onchange="this.form.submit()">
+    <option value="all" {{ 'selected' if filters.source == 'all' }}>All sources</option>
+    <option value="wazuh" {{ 'selected' if filters.source == 'wazuh' }}>Wazuh alert</option>
+    <option value="graph" {{ 'selected' if filters.source == 'graph' }}>Graph-detected only</option>
+  </select>
+  <input type="text" name="technique" placeholder="MITRE technique, e.g. T1110" value="{{ '' if filters.technique == 'all' else filters.technique }}">
+  <select name="status" onchange="this.form.submit()">
+    <option value="all" {{ 'selected' if filters.status == 'all' }}>All statuses</option>
+    {% for s in statuses %}
+      <option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ s.replace('_', ' ')|capitalize }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn" type="submit">Apply</button>
+  <a class="btn" href="/incidents">Reset</a>
+</form>
+
+<div class="panel">
+  {% if incidents %}
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Severity</th>
+        <th>Title</th>
+        <th>Source</th>
+        <th>MITRE</th>
+        <th>Src IP</th>
+        <th>Corroboration</th>
+        <th>Timestamp</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inc in incidents %}
+      <tr class="linked" onclick="window.location='/incidents/{{ inc.id }}'">
+        <td><span class="badge status-{{ inc.status }}">{{ inc.status.replace('_', ' ') }}</span></td>
+        <td><span class="badge {{ inc.severity }}">{{ inc.severity }}</span></td>
+        <td>{{ inc.title }}</td>
+        <td>
+          <span class="badge source-{{ inc.source }}">{{ 'Wazuh' if inc.source == 'wazuh' else 'Graph-detected' }}</span>
+          {% if inc.source == 'graph' %}<div class="muted" style="font-size:11px; margin-top:3px;">not alerted by Wazuh</div>{% endif %}
+        </td>
+        <td class="mono">{{ inc.mitre_technique or '—' }}</td>
+        <td class="mono">{{ inc.srcip or '—' }}</td>
+        <td>{{ inc.corroborations }} process(es)</td>
+        <td class="muted">{{ inc.timestamp }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No incidents match these filters.</div>
+  {% endif %}
+</div>
+{% endblock %}

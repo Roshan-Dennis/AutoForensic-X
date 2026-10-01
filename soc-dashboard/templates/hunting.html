@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Hunting{% endblock %}
+{% block heading %}Hunting Console{% endblock %}
+{% block subheading %}Run a saved query against a specific alert, PID, or IP{% endblock %}
+
+{% block content %}
+<div class="hunt-forms">
+  <form method="get" action="/hunting">
+    <input type="hidden" name="mode" value="alert">
+    <label>Trace Root Cause — Alert ID</label>
+    <input type="text" name="value" placeholder="e.g. 1737..." value="{{ value if mode == 'alert' else '' }}">
+    <button class="btn primary" type="submit">Run trace_root_cause</button>
+  </form>
+  <form method="get" action="/hunting">
+    <input type="hidden" name="mode" value="pid">
+    <label>Lineage From PID</label>
+    <input type="text" name="value" placeholder="e.g. 4821" value="{{ value if mode == 'pid' else '' }}">
+    <button class="btn primary" type="submit">Run lineage lookup</button>
+  </form>
+  <form method="get" action="/hunting">
+    <input type="hidden" name="mode" value="ip">
+    <label>All Activity From IP</label>
+    <input type="text" name="value" placeholder="e.g. 192.168.56.12" value="{{ value if mode == 'ip' else '' }}">
+    <button class="btn primary" type="submit">Show IP activity</button>
+  </form>
+</div>
+
+{% if error %}
+<div class="alert-banner">{{ error }}</div>
+{% endif %}
+
+{% if results %}
+<div class="panel">
+  <h2>{{ results.label }}</h2>
+  {% if results.kind == 'lineage' %}
+    <div id="lineage-graph" class="graph-canvas"></div>
+    <table style="margin-top:14px;">
+      <thead><tr><th>exec_id</th><th>PID</th><th>Binary</th><th>Arguments</th><th>Start</th></tr></thead>
+      <tbody>
+        {% for n in results.lineage.nodes %}
+        <tr class="linked" onclick="window.location='/entity/process/{{ n.exec_id }}'">
+          <td class="mono">{{ n.exec_id }}{% if n.exec_id == results.lineage.root_exec_id %} <span class="badge low">root</span>{% endif %}</td>
+          <td>{{ n.pid }}</td>
+          <td class="mono">{{ n.full_binary or n.binary }}</td>
+          <td class="mono">{{ n.arguments or '—' }}</td>
+          <td class="muted">{{ n.start_time }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif results.kind == 'ip' %}
+    <p><a href="/entity/ip/{{ value }}">Open full IP entity page &rarr;</a></p>
+    <div style="margin:10px 0;">
+      {% if results.data.active_block %}
+        <span class="badge critical">currently blocked</span> via {{ results.data.active_block.playbook }}
+        <form method="post" action="/automation/unblock" style="display:inline; margin-left:8px;">
+          <input type="hidden" name="ip" value="{{ value }}">
+          <button class="btn danger" type="submit">Unblock</button>
+        </form>
+      {% else %}
+        <form method="post" action="/entity/ip/{{ value }}/block" style="display:inline;">
+          <button class="btn danger" type="submit">Block {{ value }}</button>
+        </form>
+      {% endif %}
+    </div>
+    <h2 style="margin-top:18px;">Alerts</h2>
+    <table>
+      <thead><tr><th>Severity</th><th>Rule</th><th>Timestamp</th></tr></thead>
+      <tbody>
+        {% for a in results.data.alerts %}
+        <tr><td><span class="badge {{ a.severity }}">{{ a.severity }}</span></td><td>{{ a.rule_description }}</td><td class="muted">{{ a.timestamp }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="empty-state">No alerts.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if results and results.kind == 'lineage' %}
+<script src="/static/cytoscape.min.js"></script>
+<script src="/static/app.js"></script>
+<script>
+(function() {
+  const container = document.getElementById('lineage-graph');
+  const data = {{ results.lineage | tojson }};
+  const elements = [];
+  data.nodes.forEach(n => {
+    let cls = 'proc';
+    if (n.exec_id === data.root_exec_id) cls += ' root';
+    if (n.exec_id === data.focus_exec_id) cls += ' focus';
+    elements.push({ data: { id: n.exec_id, label: n.binary + '\npid ' + n.pid }, classes: cls });
+  });
+  data.edges.forEach(e => elements.push({ data: { id: e.source + '->' + e.target, source: e.source, target: e.target } }));
+  const cy = cytoscape({
+    container: container,
+    elements: elements,
+    layout: { name: 'breadthfirst', directed: true, spacingFactor: 1.3, padding: 20 },
+    style: [
+      { selector: 'node', style: { 'background-color': '#1e2430', 'border-width': 2, 'border-color': '#5a8dee', 'label': 'data(label)', 'color': '#e8ecf3', 'font-size': 10, 'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center', 'width': 90, 'height': 44, 'shape': 'round-rectangle' } },
+      { selector: 'node.root', style: { 'border-color': '#3ddc97', 'border-width': 3 } },
+      { selector: 'node.focus', style: { 'background-color': '#3a1f26', 'border-color': '#ef4b6a', 'border-width': 3 } },
+      { selector: 'edge', style: { 'width': 1.5, 'line-color': '#3a4252', 'target-arrow-color': '#3a4252', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } },
+    ],
+  });
+  cy.on('tap', 'node', evt => window.location = '/entity/process/' + evt.target.id());
+  cy.fit(undefined, 30);
+})();
+</script>
+{% endif %}
+{% endblock %}

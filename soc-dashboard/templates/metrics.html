@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Metrics{% endblock %}
+{% block heading %}Metrics{% endblock %}
+{% block subheading %}Computed from timestamps already in the graph — no external ground truth exists to measure against{% endblock %}
+
+{% block content %}
+<div class="grid-3">
+  <div class="panel metric-card">
+    <div class="label">Mean Time To Detect</div>
+    <div class="big">{{ (m.mttd_seconds_avg ~ 's') if m.mttd_seconds_avg is not none else '—' }}</div>
+    <div class="note">
+      Alert.timestamp − correlated Process.start_time, averaged over {{ m.mttd_sample_size }} correlated pair(s).
+      Bounded by the {{ 5 }}s correlation window — this measures ingest/correlation latency, not true attacker dwell time.
+    </div>
+  </div>
+  <div class="panel metric-card">
+    <div class="label">Mean Time To Respond</div>
+    <div class="big">{{ (m.mttr_seconds_avg ~ 's') if m.mttr_seconds_avg is not none else '—' }}</div>
+    <div class="note">
+      Remediation.applied_at − the alert or process it responded to, averaged over {{ m.mttr_sample_size }} remediation(s).
+    </div>
+  </div>
+  <div class="panel metric-card">
+    <div class="label">SOAR Actions</div>
+    <div class="big">{{ m.mttr_by_playbook.ssh_bruteforce.n + m.mttr_by_playbook.reverse_shell.n }}</div>
+    <div class="note">Total remediation events with a computable response time.</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>MTTR By Playbook</h2>
+  <table>
+    <thead><tr><th>Playbook</th><th>Avg Response Time</th><th>Sample Size</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono">ssh_bruteforce</td>
+        <td>{{ (m.mttr_by_playbook.ssh_bruteforce.avg_seconds ~ 's') if m.mttr_by_playbook.ssh_bruteforce.avg_seconds is not none else '—' }}</td>
+        <td>{{ m.mttr_by_playbook.ssh_bruteforce.n }}</td>
+      </tr>
+      <tr>
+        <td class="mono">reverse_shell</td>
+        <td>{{ (m.mttr_by_playbook.reverse_shell.avg_seconds ~ 's') if m.mttr_by_playbook.reverse_shell.avg_seconds is not none else '—' }}</td>
+        <td>{{ m.mttr_by_playbook.reverse_shell.n }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AutoForensic-X{% endblock %} · AutoForensic-X</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div>
+          <div class="brand-name">AutoForensic-X</div>
+          <div class="brand-sub">SOC Console</div>
+        </div>
+      </div>
+      <div class="nav">
+        <a href="/" class="{{ 'active' if active == 'overview' }}"><span class="nav-icon">&#9673;</span> Overview</a>
+        <a href="/incidents" class="{{ 'active' if active == 'incidents' }}"><span class="nav-icon">&#9888;</span> Incidents</a>
+        <a href="/hunting" class="{{ 'active' if active == 'hunting' }}"><span class="nav-icon">&#128269;</span> Hunting</a>
+        <a href="/automation" class="{{ 'active' if active == 'automation' }}"><span class="nav-icon">&#9889;</span> Automation History</a>
+        <a href="/mitre" class="{{ 'active' if active == 'mitre' }}"><span class="nav-icon">&#9638;</span> MITRE Coverage</a>
+        <a href="/metrics" class="{{ 'active' if active == 'metrics' }}"><span class="nav-icon">&#8734;</span> Metrics</a>
+      </div>
+      <div class="sidebar-footer">
+        Read-only console over Neo4j + soar_audit.log.<br>
+        Local lab use — no auth.
+      </div>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <div>
+          <h1>{% block heading %}Overview{% endblock %}</h1>
+          <div class="sub">{% block subheading %}&nbsp;{% endblock %}</div>
+        </div>
+        <form class="jumpbox" action="/hunting" method="get">
+          <select name="mode">
+            <option value="ip">Jump to IP</option>
+            <option value="pid">Jump to PID</option>
+          </select>
+          <input type="text" name="value" placeholder="e.g. 192.168.56.12 or 4821">
+          <button class="btn" type="submit">Go</button>
+        </form>
+      </div>
+      <div class="content">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

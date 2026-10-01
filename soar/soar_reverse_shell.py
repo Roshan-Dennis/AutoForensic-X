@@ -29,10 +29,10 @@ Safety rules (same principles as soar_ssh_bruteforce.py):
      a Remediation node in Neo4j linked to the killed process's exec_id
      and/or the blocked IP.
 
-Run as root:
-    sudo -E $(which python3) soar_reverse_shell.py --dry-run
-    sudo -E $(which python3) soar_reverse_shell.py
-    sudo -E $(which python3) soar_reverse_shell.py --unblock 192.168.56.104
+Run as the autoforensic user on the SOC VM (no sudo needed -- actions are sent remotely via the Wazuh API, not run locally):
+    python3 soar_reverse_shell.py --dry-run
+    python3 soar_reverse_shell.py
+    python3 soar_reverse_shell.py --unblock 192.168.56.104
 """
 
 import argparse
@@ -40,6 +40,8 @@ import ipaddress
 import json
 import re
 import subprocess
+
+import remote_action
 import sys
 from datetime import datetime, timezone
 
@@ -83,36 +85,39 @@ def find_reverse_shell_candidates(driver):
 
 
 def is_pid_still_this_process(pid: int, expected_arg_fragment: str) -> bool:
-    """Re-check the LIVE system, not just the graph, before killing anything.
-    PIDs get reused — a pid recorded hours ago may now belong to a totally
-    different, innocent process. Refuse to kill unless /proc confirms it's
-    still the same command."""
+    # The live /proc check now happens on the sensor: afx-response verifies the
+    # pid's real binary before killing. This host has no /proc for that machine.
+    return True
+
+
+def kill_process(pid: int, expected_binary=None):
+    _remote("kill", pid, *([expected_binary] if expected_binary else []))
+
+
+def _remote(action, *args):
+    """Run an action on the sensor via Wazuh; raise like subprocess check=True on failure."""
     try:
-        with open(f"/proc/{pid}/cmdline", "rb") as f:
-            cmdline = f.read().replace(b"\x00", b" ").decode(errors="replace")
-    except FileNotFoundError:
-        return False  # process no longer exists at all
-    return expected_arg_fragment in cmdline
-
-
-def kill_process(pid: int):
-    subprocess.run(["sudo", "kill", "-9", str(pid)], check=True)
+        res = remote_action.run(action, *args)
+    except remote_action.RemoteActionError as e:
+        raise subprocess.CalledProcessError(1, "afx-response " + action, stderr=str(e))
+    if not res.get("ok"):
+        raise subprocess.CalledProcessError(
+            1, "afx-response " + action, stderr=res.get("detail") or str(res))
+    return res
 
 
 def is_already_blocked(ip: str) -> bool:
-    result = subprocess.run(
-        ["sudo", "iptables", "-C", "OUTPUT", "-d", ip, "-j", "DROP"],
-        capture_output=True,
-    )
-    return result.returncode == 0
+    # The sensor-side block is idempotent (it checks before adding), so the SOC
+    # no longer inspects the sensor's firewall itself.
+    return False
 
 
 def block_ip(ip: str):
-    subprocess.run(["sudo", "iptables", "-A", "OUTPUT", "-d", ip, "-j", "DROP"], check=True)
+    _remote("block", ip)
 
 
 def unblock_ip(ip: str):
-    subprocess.run(["sudo", "iptables", "-D", "OUTPUT", "-d", ip, "-j", "DROP"], check=True)
+    _remote("unblock", ip)
 
 
 def write_remediation_node(driver, exec_id: str, ip: str, actions: list):
@@ -136,6 +141,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--unblock", metavar="IP", help="Remove a previously-added outbound DROP rule.")
+    parser.add_argument("--yes", action="store_true",
+                         help="Auto-approve every action instead of prompting for y/N. "
+                              "For programmatic/dashboard invocation only — interactive "
+                              "runs should keep leaving this off.")
     args = parser.parse_args()
 
     driver = GraphDatabase.driver(
@@ -179,18 +188,28 @@ def main():
                    "reason": "pid_no_longer_matches_or_exited", "exec_id": exec_id})
             print(f"  Process pid {pid} is no longer running (or pid was reused) — skipping kill.")
         else:
-            print(f"  PROPOSED ACTION: kill -9 pid {pid} (live-verified via /proc)")
+            print(f"  PROPOSED ACTION: kill -9 pid {pid} (remote kill via Wazuh active response, live-verified on the Target)")
             if args.dry_run:
                 audit({"playbook": "reverse_shell", "action": "dry_run_proposed_kill",
                        "pid": pid, "exec_id": exec_id})
             else:
-                answer = input(f"  Kill pid {pid}? This is destructive. [y/N] ").strip().lower()
+                if args.yes:
+                    answer = "y"
+                    print(f"  Kill pid {pid}? This is destructive. [y/N] y  (auto-approved via --yes)")
+                else:
+                    answer = input(f"  Kill pid {pid}? This is destructive. [y/N] ").strip().lower()
                 if answer == "y":
-                    kill_process(pid)
-                    actions_taken.append("kill_process")
-                    audit({"playbook": "reverse_shell", "action": "killed", "pid": pid,
-                           "exec_id": exec_id})
-                    print(f"  Killed pid {pid}.")
+                    try:
+                        kill_process(pid, c["binary"])
+                        actions_taken.append("kill_process")
+                        audit({"playbook": "reverse_shell", "action": "killed", "pid": pid,
+                               "exec_id": exec_id})
+                        print(f"  Killed pid {pid}.")
+                    except subprocess.CalledProcessError as e:
+                        audit({"playbook": "reverse_shell", "action": "skip_kill", "pid": pid,
+                               "exec_id": exec_id, "reason": "remote_kill_failed",
+                               "detail": str(e.stderr)})
+                        print(f"  Kill NOT performed: {e.stderr}")
                 else:
                     audit({"playbook": "reverse_shell", "action": "skip_kill", "pid": pid,
                            "reason": "human_declined", "exec_id": exec_id})
@@ -218,14 +237,18 @@ def main():
             if args.dry_run:
                 audit({"playbook": "reverse_shell", "action": "dry_run_proposed_block", "ip": ip})
             else:
-                answer = input(f"  Block outbound traffic to {ip}? [y/N] ").strip().lower()
+                if args.yes:
+                    answer = "y"
+                    print(f"  Block outbound traffic to {ip}? [y/N] y  (auto-approved via --yes)")
+                else:
+                    answer = input(f"  Block outbound traffic to {ip}? [y/N] ").strip().lower()
                 if answer == "y":
                     block_ip(ip)
                     actions_taken.append("block_outbound_ip")
                     audit({"playbook": "reverse_shell", "action": "blocked", "ip": ip,
                            "exec_id": exec_id})
                     print(f"  Blocked outbound traffic to {ip}.")
-                    print(f"  To undo: sudo -E $(which python3) soar_reverse_shell.py --unblock {ip}")
+                    print(f"  To undo: python3 soar_reverse_shell.py --unblock {ip}")
                 else:
                     audit({"playbook": "reverse_shell", "action": "skip_block", "ip": ip,
                            "reason": "human_declined"})

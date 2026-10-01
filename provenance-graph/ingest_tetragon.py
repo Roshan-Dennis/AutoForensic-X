@@ -10,6 +10,8 @@ running `tetra getevents` by hand.
 """
 
 import json
+import shlex
+import os
 import logging
 import subprocess
 import sys
@@ -24,7 +26,10 @@ log = logging.getLogger("ingest_tetragon")
 
 
 def stream_events(writer: GraphWriter):
-    cmd = ["tetra", "--server-address", config.TETRAGON_SOCKET, "getevents", "-o", "json"]
+    if os.environ.get("TETRAGON_CMD"):
+        cmd = shlex.split(os.environ["TETRAGON_CMD"])
+    else:
+        cmd = ["tetra", "--server-address", config.TETRAGON_SOCKET, "getevents", "-o", "json"]
     log.info("Starting: %s", " ".join(cmd))
 
     proc = subprocess.Popen(

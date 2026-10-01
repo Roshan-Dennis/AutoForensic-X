@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}UID {{ data.uid }}{% endblock %}
+{% block heading %}User (UID) Entity{% endblock %}
+{% block subheading %}Linux uid {{ data.uid }}{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <h2>Processes Spawned By This UID</h2>
+  {% if data.processes %}
+  <table>
+    <thead><tr><th>exec_id</th><th>PID</th><th>Binary</th><th>Arguments</th><th>Start</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for p in data.processes %}
+      <tr class="linked" onclick="window.location='/entity/process/{{ p.exec_id }}'">
+        <td class="mono">{{ p.exec_id }}</td>
+        <td>{{ p.pid }}</td>
+        <td class="mono">{{ p.binary }}</td>
+        <td class="mono" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.arguments or '—' }}</td>
+        <td class="muted">{{ p.start_time }}</td>
+        <td>{{ p.status or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No processes recorded for this uid.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block heading %}Overview{% endblock %}
+{% block subheading %}Current posture across the provenance graph{% endblock %}
+
+{% block content %}
+<div class="kpi-row">
+  <div class="kpi-tile">
+    <div class="label">Critical Alerts</div>
+    <div class="value critical">{{ kpis.severity.critical }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">High Alerts</div>
+    <div class="value high">{{ kpis.severity.high }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Medium / Low Alerts</div>
+    <div class="value">{{ kpis.severity.medium + kpis.severity.low }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">MITRE Techniques Detected</div>
+    <div class="value accent">{{ kpis.techniques_detected }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">SOAR Actions Taken</div>
+    <div class="value accent">{{ kpis.soar_actions_taken }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Active Blocks</div>
+    <div class="value">{{ kpis.active_blocks }}</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Tetragon Exec Events Over Time</h2>
+  <canvas id="timelineChart" height="80"></canvas>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <h2>Quick Links</h2>
+    <p class="muted" style="font-size:13px; line-height:1.7;">
+      Check the <a href="/incidents">Incidents queue</a> for the current alert set, including
+      graph-detected chains Wazuh never alerted on. Use <a href="/hunting">Hunting</a> to trace
+      root cause from an alert ID, PID, or IP. <a href="/mitre">MITRE Coverage</a> shows which
+      techniques this lab currently proves detection for.
+    </p>
+  </div>
+  <div class="panel">
+    <h2>About This View</h2>
+    <p class="muted" style="font-size:13px; line-height:1.7;">
+      Counts above are computed live from the Neo4j provenance graph (Alert, Process,
+      Remediation nodes) and from <span class="tag">soar_audit.log</span>. Nothing here is
+      simulated — severity is bucketed from Wazuh's own <span class="tag">rule_level</span>,
+      there is no synthetic scoring layer.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+fetch('/api/overview/timeline.json').then(r => r.json()).then(data => {
+  const ctx = document.getElementById('timelineChart');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.labels,
+      datasets: [{
+        label: 'Exec events',
+        data: data.counts,
+        borderColor: '#3ddc97',
+        backgroundColor: 'rgba(61,220,151,0.12)',
+        fill: true,
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#6b7488', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: '#1e2430' } },
+        y: { ticks: { color: '#6b7488' }, grid: { color: '#1e2430' }, beginAtZero: true }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}IP {{ data.ip }}{% endblock %}
+{% block heading %}IP Entity{% endblock %}
+{% block subheading %}{{ data.ip }}{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="alert-banner" style="border-color:#ef4b6a; background:rgba(239,75,106,0.1); color:#ef4b6a;">{{ error }}</div>
+{% endif %}
+
+{% if data.active_block %}
+<div class="alert-banner" style="border-color:#ef4b6a; background:rgba(239,75,106,0.1); color:#ef4b6a;">
+  This IP is currently blocked (since {{ data.active_block.since }}, via {{ data.active_block.playbook }}).
+  <form method="post" action="/entity/ip/{{ data.ip }}/block" style="display:inline; margin-left:10px;">
+    <button class="btn" type="submit">Re-block (both directions)</button>
+  </form>
+  <form method="post" action="/automation/unblock" style="display:inline; margin-left:10px;">
+    <input type="hidden" name="ip" value="{{ data.ip }}">
+    <button class="btn danger" type="submit">Unblock</button>
+  </form>
+</div>
+{% else %}
+<div class="panel">
+  <h2>Actions</h2>
+  <p class="muted" style="font-size:12px; margin-bottom:10px;">Blocks both INPUT and OUTPUT for this IP — a full quarantine, not tied to either playbook's narrower single-direction rule.</p>
+  <form method="post" action="/entity/ip/{{ data.ip }}/block" style="display:inline;">
+    <button class="btn danger" type="submit">Block {{ data.ip }}</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Alerts From This IP</h2>
+  {% if data.alerts %}
+  <table>
+    <thead><tr><th>Severity</th><th>Rule</th><th>MITRE</th><th>Timestamp</th></tr></thead>
+    <tbody>
+      {% for a in data.alerts %}
+      <tr>
+        <td><span class="badge {{ a.severity }}">{{ a.severity }}</span></td>
+        <td>{{ a.rule_description }}</td>
+        <td class="mono">{{ a.mitre_technique or '—' }}</td>
+        <td class="muted">{{ a.timestamp }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No Wazuh alerts recorded for this IP.</div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Block / Remediation History</h2>
+  {% if data.remediations %}
+  <table>
+    <thead><tr><th>Applied At</th><th>Action</th><th>Playbook</th></tr></thead>
+    <tbody>
+      {% for r in data.remediations %}
+      <tr>
+        <td class="muted">{{ r.applied_at }}</td>
+        <td>{{ r.action or (r.actions|join(', ') if r.actions else '—') }}</td>
+        <td class="mono">{{ r.playbook or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No remediation actions recorded for this IP.</div>
+  {% endif %}
+</div>
+{% endblock %}

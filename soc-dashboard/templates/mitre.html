@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}MITRE Coverage{% endblock %}
+{% block heading %}MITRE ATT&amp;CK Coverage Map{% endblock %}
+{% block subheading %}Curated technique set for this lab, cross-checked against live Alert data{% endblock %}
+
+{% block content %}
+<div class="legend" style="margin-bottom:16px;">
+  <span><span class="legend-dot" style="background:#3ddc97;"></span>Detected — Wazuh alert</span>
+  <span><span class="legend-dot" style="background:#5ec9e8;"></span>Detected — graph-only (no SIEM signature)</span>
+  <span><span class="legend-dot" style="background:#333a48;"></span>Not yet covered</span>
+</div>
+
+<div class="mitre-grid">
+  {% for t in catalog %}
+  <div class="mitre-cell {{ t.status }}">
+    <div class="id">{{ t.id }}</div>
+    <div class="name">{{ t.name }}</div>
+    <div class="tactic">{{ t.tactic }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -23,18 +23,3 @@ FOR (a:Alert) ON (a.timestamp);
 
 CREATE INDEX alert_srcip IF NOT EXISTS
 FOR (a:Alert) ON (a.srcip);
-
-/*
-Node types
-----------
-(:Host {name})
-(:Process {exec_id, pid, uid, binary, arguments, start_time, exit_time, status, node_name})
-(:Alert {alert_id, timestamp, rule_id, rule_description, rule_level, mitre_technique, mitre_tactic, srcip, agent_name, raw})
-
-Relationship types
--------------------
-(:Process)-[:PARENT_OF]->(:Process)          -- process ancestry, from Tetragon's parent_exec_id
-(:Process)-[:RAN_ON]->(:Host)
-(:Alert)-[:SEEN_ON]->(:Host)
-(:Alert)-[:CORRELATES_WITH {method, confidence}]->(:Process)   -- time-window join, see correlate.py
-*/
