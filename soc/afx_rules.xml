@@ -1,0 +1,24 @@
+<group name="afx,">
+  <rule id="100100" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="afx">^response$</field>
+    <description>AFX response action result</description>
+  </rule>
+
+  <rule id="100101" level="0">
+    <if_sid>5715,5402,5403,5501,5502</if_sid>
+    <match>afx-sensor</match>
+    <description>Quiet: routine afx-sensor SSH pull noise (auth, sudo, PAM session)</description>
+  </rule>
+
+  <rule id="100102" level="12">
+    <if_sid>60106</if_sid>
+    <field name="win.eventdata.ticketEncryptionType">^0x17$</field>
+    <field name="win.eventdata.serviceName" negate="yes">\$$</field>
+    <description>Possible Kerberoasting: RC4 (0x17) Kerberos service ticket requested for account $(win.eventdata.serviceName) by $(win.eventdata.targetUserName)</description>
+    <mitre>
+      <id>T1558.003</id>
+    </mitre>
+    <group>kerberoasting,attack,</group>
+  </rule>
+</group>
