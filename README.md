@@ -25,6 +25,82 @@ The lab is split across four VMs, isolated from the analyst's own machine on a h
 
 A fifth, intentional boundary: **Ollama (local LLM)** is planned to run on the analyst's own Windows host (for GPU access), with read-only access *from* the lab — it will never be able to act back into it.
 
+```mermaid
+flowchart TB
+    subgraph Kali["Kali VM — Attacker"]
+        A1[Hydra / SSH brute-force]
+        A2[curl — web shell upload + RCE]
+        A3[netcat — reverse shell listener]
+        A4[Impacket + hashcat — Kerberoasting]
+    end
+
+    subgraph Target["Target VM — Ubuntu 22.04 (sensor-only, attacked)"]
+        direction TB
+        SSHD[sshd]
+        NGINX["nginx + php-fpm<br/>intentionally vulnerable upload.php"]
+        TETRAGON["Tetragon<br/>eBPF kernel process tracing"]
+        WAZUH_T["Wazuh agent"]
+        RESP["afx-response<br/>(active-response, remote-triggered)"]
+    end
+
+    subgraph DC["AutoForensic-DC — Windows Server 2022 (AD domain controller)"]
+        direction TB
+        AD["Active Directory<br/>autoforensic.local"]
+        SYSMON["Sysmon + Advanced<br/>Audit Policy"]
+        WAZUH_DC[Wazuh agent]
+    end
+
+    subgraph SOC["AutoForensic-SOC VM — brain of the lab"]
+        direction TB
+        WMGR["Wazuh manager<br/>+ indexer + dashboard"]
+        NEO4J[("Neo4j<br/>Provenance Graph")]
+        KDET["detect_kerberoasting.py<br/>(archives.log tailer)"]
+        TRACE["Root-Cause Backward Trace<br/>(Cypher)"]
+        SOAR1["SOAR: SSH brute-force<br/>playbook"]
+        SOAR2["SOAR: reverse-shell<br/>playbook"]
+        CONSOLE["FastAPI SOC console"]
+    end
+
+    subgraph Host["Windows Host"]
+        OLLAMA["Ollama (local LLM)<br/>— planned: incident<br/>documentation"]
+    end
+
+    SSHD --> TETRAGON
+    NGINX --> TETRAGON
+    SSHD -.auth logs.-> WAZUH_T
+    TETRAGON -- "process_exec/exit events" --> NEO4J
+    WAZUH_T -- "correlated alerts" --> WMGR
+    WMGR -- "alerts.json" --> NEO4J
+    WMGR -- "archives.log (all events)" --> KDET
+    WAZUH_DC -- "4769 events, Sysmon" --> WMGR
+    KDET -- "synthetic alert, no native rule fired" --> NEO4J
+
+    NEO4J --> TRACE
+    NEO4J --> SOAR1
+    NEO4J --> SOAR2
+    NEO4J --> CONSOLE
+    SOAR1 -- "block IP<br/>(2-source corroboration)" --> RESP
+    SOAR2 -- "kill process +<br/>block listener IP" --> RESP
+
+    TRACE -.planned.-> OLLAMA
+
+    A1 -->|SSH brute-force T1110| SSHD
+    A2 -->|Web shell upload T1505.003| NGINX
+    A3 -.->|reverse shell T1059.004/T1095| NGINX
+    A4 -->|Kerberoasting T1558.003| AD
+    AD --> SYSMON --> WAZUH_DC
+
+    style NEO4J fill:#4a7,color:#fff
+    style TETRAGON fill:#38f,color:#fff
+    style WAZUH_T fill:#e94,color:#fff
+    style WAZUH_DC fill:#e94,color:#fff
+    style WMGR fill:#e94,color:#fff
+    style SOAR1 fill:#c44,color:#fff
+    style SOAR2 fill:#c44,color:#fff
+    style KDET fill:#4a7,color:#fff
+    style OLLAMA fill:#999,color:#fff
+```
+
 ### The 7-layer design (per the full architecture spec)
 
 | # | Layer | Status |
