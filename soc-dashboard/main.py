@@ -1,13 +1,18 @@
 """
-main.py — AutoForensic-X SOC console (FastAPI).
+main.py - AutoForensic-X SOC console (FastAPI).
 
 Mostly a read-only viewer over the Neo4j provenance graph + soar_audit.log,
 plus a set of real analyst actions rather than just display:
   - Block / Unblock an IP directly (audit.block_ip / audit.unblock_ip)
   - Kill a live process by PID (audit.kill_process)
   - Trigger an actual SOAR playbook run, dry-run or live (playbooks.run_playbook)
-  - Incident triage status + notes (notes.py — local state, not in Neo4j)
-Every action shells out the same way you'd do it by hand over SSH — none
+  - Incident triage status + notes (notes.py - local state, not in Neo4j)
+  - Sigma rule approval queue: review an AI-generated, pySigma-validated
+    detection rule per incident and approve it for deployment into Wazuh,
+    or reject it (sigma_rules.py - compiles the rule, shells out to a
+    root-owned helper to write it into /var/ossec/etc/rules/ and reload
+    the manager; audit-logged the same as any other SOAR action)
+Every action shells out the same way you'd do it by hand over SSH - none
 of the corroboration/safety logic is reimplemented here, see audit.py and
 playbooks.py's docstrings.
 
@@ -34,6 +39,8 @@ import db
 import notes
 import playbooks
 import queries
+import sigma_rules
+
 
 def _json_safe(obj):
     from datetime import date, datetime, time
@@ -48,9 +55,9 @@ def _json_safe(obj):
     return obj
 
 
-
 def _err_redirect(url: str, message: str) -> RedirectResponse:
     return RedirectResponse(url=f"{url}?error={urllib.parse.quote(message)}", status_code=303)
+
 
 app = FastAPI(title="AutoForensic-X SOC Console")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -65,8 +72,7 @@ def render(request: Request, template: str, **ctx):
 def _shutdown():
     db.close()
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 1. Overview
 
 @app.get("/", response_class=HTMLResponse)
@@ -88,8 +94,7 @@ def overview_timeline():
         counts.append(r["count"])
     return JSONResponse({"labels": labels, "counts": counts})
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 2. Incidents queue
 
 @app.get("/incidents", response_class=HTMLResponse)
@@ -109,8 +114,7 @@ def incidents(request: Request, severity: str = "all", technique: str = "all", s
         filters={"severity": severity, "technique": technique, "source": source, "status": status},
     )
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 3. Incident graph view
 
 @app.get("/incidents/{incident_id}", response_class=HTMLResponse)
@@ -146,8 +150,7 @@ def incident_graph_json(incident_id: str):
     lineage = queries.lineage_for(incident["focus_exec_id"])
     return JSONResponse(_json_safe(lineage))
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 4. Entity pages
 
 @app.get("/entity/process/{exec_id}", response_class=HTMLResponse)
@@ -200,8 +203,7 @@ def entity_uid(request: Request, uid: str):
     data = queries.uid_entity(uid)
     return render(request, "entity_uid.html", active="entities", data=data)
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 5. Hunting console
 
 @app.get("/hunting", response_class=HTMLResponse)
@@ -230,8 +232,7 @@ def hunting(request: Request, mode: str | None = None, value: str | None = None)
             error = "That value doesn't look valid for the selected hunt."
     return render(request, "hunting.html", active="hunting", mode=mode, value=value, results=results, error=error)
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 6. Automation history
 
 @app.get("/automation", response_class=HTMLResponse)
@@ -283,21 +284,57 @@ def playbooks_run(request: Request, name: str = Form(...), mode: str = Form(...)
         label=playbooks.PLAYBOOKS[name]["label"],
     )
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 7. MITRE coverage map
 
 @app.get("/mitre", response_class=HTMLResponse)
 def mitre(request: Request):
     return render(request, "mitre.html", active="mitre", catalog=queries.mitre_coverage())
 
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # 8. Metrics
 
 @app.get("/metrics", response_class=HTMLResponse)
 def metrics(request: Request):
     return render(request, "metrics.html", active="metrics", m=queries.mttd_mttr())
+
+# --------------------------------------------------------------------------
+# 9. Sigma approval queue
+#
+# Review AI-generated, pySigma-schema-validated detection rules ("one per
+# incident, produced by generate_sigma.py) and approve them for deployment
+# into Wazuh, or reject them. "Approve" compiles the rule and shells out to
+# a root-owned helper (sigma_rules.DEPLOY_SCRIPT, via sudo -n) that writes
+# it into /var/ossec/etc/rules/afx_rules.xml and restarts the manager - see
+# sigma_rules.py's module docstring for the real, stated limitation this
+# has today (no Tetragon->Wazuh bridge yet, so a graph-sourced incident's
+# rule won't actually see matching telemetry until that bridge exists).
+
+@app.get("/sigma", response_class=HTMLResponse)
+def sigma_queue(request: Request, error: str | None = None):
+    rows = sigma_rules.list_queue()
+    return render(request, "sigma_queue.html", active="sigma", rows=rows, error=error)
+
+
+@app.post("/sigma/{incident_id}/approve")
+def sigma_approve(incident_id: str, sigma_text: str = Form(...)):
+    try:
+        sigma_rules.approve_and_deploy(incident_id, sigma_text, actor="dashboard")
+    except sigma_rules.DeployError as e:
+        return _err_redirect("/sigma", f"{incident_id}: {e}")
+    return RedirectResponse(url="/sigma", status_code=303)
+
+
+@app.post("/sigma/{incident_id}/reject")
+def sigma_reject(incident_id: str, note: str = Form("")):
+    sigma_rules.reject(incident_id, actor="dashboard", note=note)
+    return RedirectResponse(url="/sigma", status_code=303)
+
+
+@app.post("/sigma/{incident_id}/reopen")
+def sigma_reopen(incident_id: str):
+    sigma_rules.reset_to_pending(incident_id, actor="dashboard")
+    return RedirectResponse(url="/sigma", status_code=303)
 
 
 if __name__ == "__main__":

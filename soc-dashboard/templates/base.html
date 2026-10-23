@@ -21,20 +21,21 @@
         <a href="/" class="{{ 'active' if active == 'overview' }}"><span class="nav-icon">&#9673;</span> Overview</a>
         <a href="/incidents" class="{{ 'active' if active == 'incidents' }}"><span class="nav-icon">&#9888;</span> Incidents</a>
         <a href="/hunting" class="{{ 'active' if active == 'hunting' }}"><span class="nav-icon">&#128269;</span> Hunting</a>
+        <a href="/sigma" class="{{ 'active' if active == 'sigma' }}"><span class="nav-icon">&#128737;</span> Sigma Queue</a>
         <a href="/automation" class="{{ 'active' if active == 'automation' }}"><span class="nav-icon">&#9889;</span> Automation History</a>
         <a href="/mitre" class="{{ 'active' if active == 'mitre' }}"><span class="nav-icon">&#9638;</span> MITRE Coverage</a>
         <a href="/metrics" class="{{ 'active' if active == 'metrics' }}"><span class="nav-icon">&#8734;</span> Metrics</a>
       </div>
       <div class="sidebar-footer">
         Read-only console over Neo4j + soar_audit.log.<br>
-        Local lab use — no auth.
+        Local lab use - no auth.
       </div>
     </div>
     <div class="main">
       <div class="topbar">
         <div>
           <h1>{% block heading %}Overview{% endblock %}</h1>
-          <div class="sub">{% block subheading %}&nbsp;{% endblock %}</div>
+          <div class="sub">{% block subheading %}{% endblock %}&nbsp;</div>
         </div>
         <form class="jumpbox" action="/hunting" method="get">
           <select name="mode">
