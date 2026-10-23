@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Sigma Queue{% endblock %}
+{% block heading %}Sigma Rule Approval Queue{% endblock %}
+{% block subheading %}AI-generated, pySigma-validated detection rules awaiting human review before deployment into Wazuh{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="alert-banner" style="border-color:#ef4b6a;">{{ error }}</div>
+{% endif %}
+
+<div class="alert-banner">
+  Approving a rule writes it into <code>/var/ossec/etc/rules/afx_rules.xml</code> and restarts the
+  Wazuh manager. Matching is a best-effort substring/regex check against Wazuh's <code>full_log</code>
+  field, not a decoded structured field — there's no Tetragon&rarr;Wazuh bridge yet, so a rule for a
+  graph-only incident won't see matching telemetry until that bridge exists. See each rule's
+  description for the same note.
+</div>
+
+{% if not rows %}
+<div class="panel">
+  <p class="muted">No incidents currently have a pySigma-validated detection rule waiting for review.
+  Run <code>generate_sigma.py &lt;incident_id&gt;</code> for an incident first.</p>
+</div>
+{% endif %}
+
+{% for row in rows %}
+<div class="panel" style="margin-bottom:16px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+    <div>
+      <h2 style="margin-bottom:2px;">
+        <a href="/incidents/{{ row.incident_id }}">{{ row.title or row.incident_id }}</a>
+      </h2>
+      <span class="muted mono" style="font-size:12px;">{{ row.incident_id }}</span>
+    </div>
+    <span class="badge status-{{ row.status }}">{{ row.status|capitalize }}</span>
+  </div>
+
+  {% if row.wazuh_rule_id %}
+  <p class="muted" style="margin-top:8px;">Wazuh rule id: <span class="mono">{{ row.wazuh_rule_id }}</span></p>
+  {% endif %}
+
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer;">View generated Sigma rule</summary>
+    <pre class="mono" style="white-space:pre-wrap; font-size:12px; margin-top:8px; padding:10px; border:1px solid var(--border); border-radius:6px; overflow-x:auto;">{{ row.sigma_text }}</pre>
+  </details>
+
+  {% if row.history %}
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer;">History ({{ row.history|length }})</summary>
+    <div style="margin-top:8px; font-size:12px;">
+      {% for h in row.history|reverse %}
+      <div style="padding:6px 0; border-bottom:1px solid var(--border);">
+        <span class="muted">{{ h.ts }}</span> — <strong>{{ h.action }}</strong> ({{ h.actor }})
+        {% if h.note %}<div class="muted" style="margin-top:2px;">{{ h.note }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  <div style="display:flex; gap:8px; margin-top:12px;">
+    {% if row.status != "approved" %}
+    <form method="post" action="/sigma/{{ row.incident_id }}/approve">
+      <input type="hidden" name="sigma_text" value="{{ row.sigma_text }}">
+      <button class="btn primary" type="submit"
+        onclick="return confirm('Deploy this rule into Wazuh and restart the manager?');">
+        Approve &amp; Deploy
+      </button>
+    </form>
+    {% endif %}
+    {% if row.status == "pending" %}
+    <form method="post" action="/sigma/{{ row.incident_id }}/reject">
+      <button class="btn" type="submit">Reject</button>
+    </form>
+    {% endif %}
+    {% if row.status == "rejected" %}
+    <form method="post" action="/sigma/{{ row.incident_id }}/reopen">
+      <button class="btn" type="submit">Reopen</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
