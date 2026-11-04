@@ -23,3 +23,6 @@ FOR (a:Alert) ON (a.timestamp);
 
 CREATE INDEX alert_srcip IF NOT EXISTS
 FOR (a:Alert) ON (a.srcip);
+
+CREATE CONSTRAINT file_sha256 IF NOT EXISTS
+FOR (f:File) REQUIRE f.sha256 IS UNIQUE;
