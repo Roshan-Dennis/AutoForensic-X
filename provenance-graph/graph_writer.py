@@ -14,6 +14,64 @@ from neo4j import GraphDatabase
 
 log = logging.getLogger("graph_writer")
 
+# Asset-criticality lookup by agent/host name, and the severity x
+# criticality -> priority scoring formula. Mirrors the lookup that used
+# to live only in soc-dashboard/generate_ticket.py (render-time-only,
+# per the 2026-10-15 roadmap note) - computed here instead, once, at
+# ingest time, and stored on the Alert node. Kept as its own small copy
+# rather than a cross-directory import (provenance-graph and
+# soc-dashboard are independent script directories with their own
+# config.py each, same existing pattern).
+ASSET_CRITICALITY = {
+    "dc": "critical",
+    "target": "standard",
+    "kali": "low",
+    "soc": "standard",
+}
+
+_SEVERITY_SCORE = {"critical": 4, "high": 3, "medium": 2, "low": 1, "unknown": 1}
+_CRITICALITY_SCORE = {"critical": 3, "standard": 2, "low": 1}
+
+
+def _severity_bucket(rule_level) -> str:
+    """Same thresholds as soc-dashboard/queries.py's severity_bucket() -
+    kept in sync by hand since the two directories don't share a package."""
+    if rule_level is None:
+        return "unknown"
+    try:
+        lvl = int(rule_level)
+    except (TypeError, ValueError):
+        return "unknown"
+    if lvl >= 12:
+        return "critical"
+    if lvl >= 9:
+        return "high"
+    if lvl >= 5:
+        return "medium"
+    return "low"
+
+
+def _compute_priority(rule_level, agent_name) -> tuple[str, str]:
+    """Returns (priority, asset_criticality). Priority is severity x
+    asset-criticality, composite score mapped to P1 (highest) - P4
+    (lowest). Uses the alert's own reporting agent (agent_name), not the
+    GraphWriter's own configured host_name - agent_name is the Wazuh
+    manager's record of which VM the event actually came from, which is
+    what asset criticality should be about."""
+    severity = _severity_bucket(rule_level)
+    criticality = ASSET_CRITICALITY.get((agent_name or "").lower(), "standard")
+    score = _SEVERITY_SCORE[severity] * _CRITICALITY_SCORE[criticality]
+    if score >= 9:
+        priority = "P1"
+    elif score >= 6:
+        priority = "P2"
+    elif score >= 3:
+        priority = "P3"
+    else:
+        priority = "P4"
+    return priority, criticality
+
+
 
 def _parse_ts(ts: str) -> Optional[datetime]:
     """Best-effort ISO8601 parser — Tetragon and Wazuh both emit slightly
@@ -126,6 +184,7 @@ class GraphWriter:
         mitre = rule.get("mitre", {}) or {}
         agent = alert.get("agent", {}) or {}
         timestamp = _parse_ts(alert.get("timestamp"))
+        priority, asset_criticality = _compute_priority(rule.get("level"), agent.get("name"))
 
         with self.driver.session() as session:
             session.run(
@@ -139,7 +198,9 @@ class GraphWriter:
                     a.mitre_technique = $mitre_technique,
                     a.mitre_tactic = $mitre_tactic,
                     a.srcip = $srcip,
-                    a.agent_name = $agent_name
+                    a.agent_name = $agent_name,
+                    a.priority = $priority,
+                    a.asset_criticality = $asset_criticality
                 MERGE (h:Host {name: $host_name})
                 MERGE (a)-[:SEEN_ON]->(h)
                 """,
@@ -152,6 +213,8 @@ class GraphWriter:
                 mitre_tactic=", ".join(mitre.get("tactic", [])) if mitre.get("tactic") else None,
                 srcip=alert.get("data", {}).get("srcip"),
                 agent_name=agent.get("name"),
+            priority=priority,
+            asset_criticality=asset_criticality,
                 host_name=self.host_name,
             )
 

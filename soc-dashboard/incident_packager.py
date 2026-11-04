@@ -134,6 +134,8 @@ def build_package(incident_id: str) -> dict:
         "source": incident.get("source"),  # "wazuh" | "graph"
         "title": incident.get("title"),
         "severity": incident.get("severity"),
+        "priority": incident.get("priority"),
+        "asset_criticality": incident.get("asset_criticality"),
         "mitre_technique": incident.get("mitre_technique"),
         "mitre_tactic": incident.get("mitre_tactic"),
         "host": host,
