@@ -298,3 +298,14 @@ tbody tr.linked { cursor: pointer; }
   font-size: 12px;
   margin-bottom: 16px;
 }
+
+/* Ticket workflow badges (status/disposition) - added 2026-11-03 */
+.badge.status-open { background: rgba(148,163,184,0.15); color: var(--text-2); }
+.badge.status-in_progress { background: rgba(93,169,233,0.15); color: var(--sev-low); }
+.badge.status-contained { background: rgba(240,180,40,0.15); color: var(--sev-medium); }
+.badge.status-closed { background: rgba(61,220,151,0.15); color: var(--accent); }
+
+.badge.disposition-true_positive { background: rgba(239,75,106,0.15); color: var(--sev-critical); }
+.badge.disposition-false_positive { background: rgba(148,163,184,0.15); color: var(--text-2); text-decoration: line-through; }
+.badge.disposition-benign { background: rgba(93,169,233,0.15); color: var(--sev-low); }
+.badge.disposition-duplicate { background: rgba(148,163,184,0.15); color: var(--text-2); }

@@ -44,15 +44,18 @@
     <tbody>
       {% for inc in incidents %}
       <tr class="linked" onclick="window.location='/incidents/{{ inc.id }}'">
-        <td><span class="badge status-{{ inc.status }}">{{ inc.status.replace('_', ' ') }}</span></td>
+        <td>
+          <span class="badge status-{{ inc.status }}">{{ inc.status.replace('_', ' ') }}</span>
+          {% if inc.disposition %}<div style="margin-top:3px;"><span class="badge disposition-{{ inc.disposition }}" style="font-size:10px;">{{ inc.disposition.replace('_', ' ') }}</span></div>{% endif %}
+        </td>
         <td><span class="badge {{ inc.severity }}">{{ inc.severity }}</span></td>
         <td>{{ inc.title }}</td>
         <td>
           <span class="badge source-{{ inc.source }}">{{ 'Wazuh' if inc.source == 'wazuh' else 'Graph-detected' }}</span>
           {% if inc.source == 'graph' %}<div class="muted" style="font-size:11px; margin-top:3px;">not alerted by Wazuh</div>{% endif %}
         </td>
-        <td class="mono">{{ inc.mitre_technique or '—' }}</td>
-        <td class="mono">{{ inc.srcip or '—' }}</td>
+        <td class="mono">{{ inc.mitre_technique or '-' }}</td>
+        <td class="mono">{{ inc.srcip or '-' }}</td>
         <td>{{ inc.corroborations }} process(es)</td>
         <td class="muted">{{ inc.timestamp }}</td>
       </tr>

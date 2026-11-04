@@ -102,7 +102,9 @@ def incidents(request: Request, severity: str = "all", technique: str = "all", s
     rows = queries.all_incidents(severity=severity, technique=technique, source=source)
     saved_statuses = notes.all_statuses()
     for r in rows:
-        r["status"] = saved_statuses.get(r["id"], {}).get("status", "new")
+        info = saved_statuses.get(r["id"], {})
+        r["status"] = info.get("status", "open")
+        r["disposition"] = info.get("disposition")
     if status != "all":
         rows = [r for r in rows if r["status"] == status]
     return render(
@@ -118,7 +120,7 @@ def incidents(request: Request, severity: str = "all", technique: str = "all", s
 # 3. Incident graph view
 
 @app.get("/incidents/{incident_id}", response_class=HTMLResponse)
-def incident_detail(request: Request, incident_id: str):
+def incident_detail(request: Request, incident_id: str, error: str | None = None):
     incident = queries.find_incident(incident_id)
     if incident is None:
         return HTMLResponse(f"Incident '{incident_id}' not found.", status_code=404)
@@ -130,15 +132,44 @@ def incident_detail(request: Request, incident_id: str):
         incident=incident,
         status_info=status_info,
         statuses=notes.STATUSES,
+        dispositions=notes.DISPOSITIONS,
+        error=error,
     )
 
 
-@app.post("/incidents/{incident_id}/status")
-def incident_set_status(incident_id: str, status: str = Form(...), note: str = Form("")):
+@app.post("/incidents/{incident_id}/claim")
+def incident_claim(incident_id: str, note: str = Form("")):
+    notes.claim(incident_id, actor="dashboard", note=note)
+    return RedirectResponse(url=f"/incidents/{incident_id}", status_code=303)
+
+
+@app.post("/incidents/{incident_id}/contain")
+def incident_contain(incident_id: str, note: str = Form("")):
+    notes.contain(incident_id, actor="dashboard", note=note)
+    return RedirectResponse(url=f"/incidents/{incident_id}", status_code=303)
+
+
+@app.post("/incidents/{incident_id}/close")
+def incident_close(incident_id: str, disposition: str = Form(...), note: str = Form("")):
     try:
-        notes.set_status(incident_id, status, note=note)
-    except ValueError:
-        pass
+        notes.close(incident_id, disposition, actor="dashboard", note=note)
+    except ValueError as e:
+        return _err_redirect(f"/incidents/{incident_id}", str(e))
+    return RedirectResponse(url=f"/incidents/{incident_id}", status_code=303)
+
+
+@app.post("/incidents/{incident_id}/false-positive")
+def incident_false_positive(incident_id: str, note: str = Form("")):
+    notes.false_positive(incident_id, actor="dashboard", note=note)
+    return RedirectResponse(url=f"/incidents/{incident_id}", status_code=303)
+
+
+@app.post("/incidents/{incident_id}/note")
+def incident_add_note(incident_id: str, note: str = Form(...)):
+    try:
+        notes.add_note(incident_id, note, actor="dashboard")
+    except ValueError as e:
+        return _err_redirect(f"/incidents/{incident_id}", str(e))
     return RedirectResponse(url=f"/incidents/{incident_id}", status_code=303)
 
 
