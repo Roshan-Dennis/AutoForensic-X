@@ -1,0 +1,16 @@
+[Unit]
+Description=AutoForensic-X DC Sysmon file/process hasher
+After=network.target wazuh-manager.service neo4j.service
+Wants=wazuh-manager.service neo4j.service
+
+[Service]
+Type=simple
+User=autoforensic
+WorkingDirectory=/home/autoforensic/provenance-graph
+EnvironmentFile=/home/autoforensic/.afx.env
+ExecStart=/home/autoforensic/afx-venv/bin/python3 /home/autoforensic/provenance-graph/file_hasher_dc.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -240,7 +240,10 @@ class GraphWriter:
                 WHERE p.start_time IS NOT NULL
                   AND a.timestamp IS NOT NULL
                   AND abs(duration.between(p.start_time, a.timestamp).seconds) <= $window
-                  AND (p.binary CONTAINS 'sshd' OR p.binary CONTAINS 'nginx' OR p.binary CONTAINS 'bash' OR p.binary CONTAINS 'sh')
+                  AND (
+                p.node_name = 'dc'
+                OR p.binary CONTAINS 'sshd' OR p.binary CONTAINS 'nginx' OR p.binary CONTAINS 'bash' OR p.binary CONTAINS 'sh'
+              )
                 MERGE (a)-[r:CORRELATES_WITH]->(p)
                 ON CREATE SET r.method = 'time_window', r.confidence = 'low', r.window_seconds = $window
                 RETURN count(r) AS edges
@@ -250,3 +253,42 @@ class GraphWriter:
             )
             record = result.single()
             return record["edges"] if record else 0
+
+    def upsert_file_hash(
+        self,
+        exec_id: str,
+        sha256: str,
+        md5: Optional[str],
+        imphash: Optional[str],
+        path: Optional[str],
+        first_seen_str: Optional[str],
+    ) -> None:
+        """Attaches a File node (identified by sha256, the canonical
+        hash for this purpose) to the Process already upserted under
+        exec_id, via a HAS_IMAGE edge. Used by file_hasher_dc.py for
+        DC's Sysmon Event ID 1 process-image hashes. Target-side
+        (Tetragon) file hashing is a separate, not-yet-built piece
+        (needs its own gRPC-stream tailer - Tetragon doesn't carry
+        Sysmon-style hash data)."""
+        if not sha256:
+            return
+        first_seen = _parse_ts(first_seen_str)
+        with self.driver.session() as session:
+            session.run(
+                """
+                MERGE (f:File {sha256: $sha256})
+                ON CREATE SET
+                    f.md5 = $md5,
+                    f.imphash = $imphash,
+                    f.path = $path,
+                    f.first_seen = $first_seen
+                MERGE (p:Process {exec_id: $exec_id})
+                MERGE (p)-[:HAS_IMAGE]->(f)
+                """,
+                sha256=sha256,
+                md5=md5,
+                imphash=imphash,
+                path=path,
+                first_seen=first_seen,
+                exec_id=exec_id,
+            )
