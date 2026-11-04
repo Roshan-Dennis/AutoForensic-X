@@ -34,18 +34,12 @@ from jinja2 import Template
 
 from incident_packager import SAVE_DIR, build_package
 
-# Hardcoded asset-criticality lookup by hostname, per the roadmap's
-# priority-field plan (severity x asset criticality). This is NOT yet
-# wired into ingest_wazuh.py/detect_kerberoasting.py as a stored Alert
-# property (separate future task) - here it's computed at render time
-# from the package's host field, purely for display on the ticket. Never
-# invented beyond what this lookup actually states.
-ASSET_CRITICALITY = {
-    "dc": "critical",
-    "target": "standard",
-    "kali": "low",
-    "soc": "standard",
-}
+# Priority and asset criticality are now computed once, at ingest
+# time, in provenance-graph/graph_writer.py (with a computed
+# fallback in soc-dashboard/queries.py for older Alert nodes), and
+# carried through on the incident package by incident_packager.py.
+# This module just renders whatever the package already has - no
+# lookup table needed here anymore (2026-11-04).
 
 TICKET_TEMPLATE = """\
 # Incident Ticket: {{ p.incident_id }}
@@ -57,6 +51,7 @@ TICKET_TEMPLATE = """\
 | Title | {{ p.title }} |
 | Detected | {{ p.timestamp }} |
 | Host | {{ p.host }} (asset criticality: {{ criticality }}) |
+| Priority | {{ priority }} |
 | Severity | {{ p.severity }} |
 | MITRE Technique(s) | {{ p.mitre_technique }} |
 | MITRE Tactic(s) | {{ p.mitre_tactic }} |
@@ -224,13 +219,14 @@ def generate_ticket(incident_id: str) -> str:
             raw = valid_path.read_text().strip()
             sigma_valid = "PASSED" if raw == "true" else f"FAILED ({raw})"
 
-    host = (package.get("host") or "").lower()
-    criticality = ASSET_CRITICALITY.get(host, "unclassified")
+    criticality = package.get("asset_criticality") or "unclassified"
+    priority = package.get("priority") or "unscored"
 
     template = Template(TICKET_TEMPLATE, trim_blocks=True, lstrip_blocks=True)
     return template.render(
         p=package,
         criticality=criticality,
+        priority=priority,
         source_plain=_source_plain(package),
         narrative=narrative,
         hardening=hardening,

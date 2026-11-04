@@ -47,6 +47,34 @@ def severity_bucket(rule_level) -> str:
     return "low"
 
 
+# Asset-criticality lookup + priority scoring, mirrors
+# provenance-graph/graph_writer.py's copy (new Alert nodes get
+# priority/asset_criticality stored at ingest time there; this is only
+# used as a fallback here for Alert nodes ingested before that change,
+# and for the two synthetic non-Alert-node incident types below, which
+# have nothing stored to read).
+ASSET_CRITICALITY = {
+    "dc": "critical",
+    "target": "standard",
+    "kali": "low",
+    "soc": "standard",
+}
+_SEVERITY_SCORE = {"critical": 4, "high": 3, "medium": 2, "low": 1, "unknown": 1}
+_CRITICALITY_SCORE = {"critical": 3, "standard": 2, "low": 1}
+
+
+def priority_for(severity: str, criticality: str) -> str:
+    score = _SEVERITY_SCORE.get(severity, 1) * _CRITICALITY_SCORE.get(criticality, 2)
+    if score >= 9:
+        return "P1"
+    if score >= 6:
+        return "P2"
+    if score >= 3:
+        return "P3"
+    return "P4"
+
+
+
 # ---------------------------------------------------------------------------
 # Overview
 
@@ -120,6 +148,8 @@ def real_incidents() -> list[dict]:
         RETURN a.alert_id AS alert_id, a.rule_description AS rule_description,
                a.rule_level AS rule_level, a.mitre_technique AS mitre_technique,
                a.mitre_tactic AS mitre_tactic, a.srcip AS srcip,
+                a.priority AS priority, a.asset_criticality AS asset_criticality,
+                a.agent_name AS agent_name,
                a.timestamp AS timestamp, corroborations
         ORDER BY a.timestamp DESC
         LIMIT 300
@@ -133,6 +163,12 @@ def real_incidents() -> list[dict]:
                 "source": "wazuh",
                 "title": r["rule_description"] or "(no description)",
                 "severity": severity_bucket(r["rule_level"]),
+                "priority": r["priority"] or priority_for(
+                    severity_bucket(r["rule_level"]),
+                    r["asset_criticality"] or ASSET_CRITICALITY.get((r["agent_name"] or "").lower(), "standard"),
+                ),
+                "asset_criticality": r["asset_criticality"] or ASSET_CRITICALITY.get((r["agent_name"] or "").lower(), "standard"),
+                "agent_name": r["agent_name"],
                 "mitre_technique": r["mitre_technique"],
                 "mitre_tactic": r["mitre_tactic"],
                 "srcip": r["srcip"],
@@ -196,6 +232,8 @@ def synthetic_incidents() -> list[dict]:
                 "source": "graph",
                 "title": f"Reverse shell via {row['entry_point']} (no Wazuh alert)",
                 "severity": "high",
+                "priority": priority_for("high", "standard"),
+                "asset_criticality": "standard",
                 "mitre_technique": "T1059.004, T1095",
                 "mitre_tactic": "Execution, Command and Control",
                 "srcip": None,
@@ -214,6 +252,8 @@ def synthetic_incidents() -> list[dict]:
                 "source": "graph",
                 "title": f"Web shell command execution via {row['entry_point']} (no Wazuh alert)",
                 "severity": "high",
+                "priority": priority_for("high", "standard"),
+                "asset_criticality": "standard",
                 "mitre_technique": "T1505.003",
                 "mitre_tactic": "Persistence",
                 "srcip": None,
