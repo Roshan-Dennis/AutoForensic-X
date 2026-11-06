@@ -309,3 +309,33 @@ tbody tr.linked { cursor: pointer; }
 .badge.disposition-false_positive { background: rgba(148,163,184,0.15); color: var(--text-2); text-decoration: line-through; }
 .badge.disposition-benign { background: rgba(93,169,233,0.15); color: var(--sev-low); }
 .badge.disposition-duplicate { background: rgba(148,163,184,0.15); color: var(--text-2); }
+
+/* Incident deep-dive tabs (AI Report / Process Graph / Raw JSON) - added for the ticket.md primary view */
+.tabs { display: flex; gap: 4px; margin: 20px 0 16px 0; border-bottom: 1px solid var(--border); }
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-2);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab-btn:hover { color: var(--text-0); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-panel { animation: afx-fade-in 0.1s ease-in; }
+@keyframes afx-fade-in { from { opacity: 0.4; } to { opacity: 1; } }
+
+/* ticket.md rendered via markdown -> HTML inside the AI Report tab */
+.ticket-render h1 { font-size: 20px; margin: 0 0 14px 0; border-bottom: 2px solid var(--accent); padding-bottom: 8px; }
+.ticket-render h2 { font-size: 15px; margin: 22px 0 10px 0; color: var(--text-1); text-transform: none; letter-spacing: 0; border: none; }
+.ticket-render h3 { font-size: 13px; margin: 14px 0 8px 0; color: var(--text-1); }
+.ticket-render table { width: 100%; border-collapse: collapse; margin: 10px 0 16px 0; font-size: 13px; }
+.ticket-render th, .ticket-render td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+.ticket-render th { background: var(--bg-2); color: var(--text-1); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+.ticket-render code { font-family: var(--mono); background: var(--bg-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+.ticket-render pre { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; font-size: 12px; }
+.ticket-render pre code { background: none; padding: 0; }
+.ticket-render hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+.ticket-render em { color: var(--text-2); }

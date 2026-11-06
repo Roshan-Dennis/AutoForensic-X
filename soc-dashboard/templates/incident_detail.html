@@ -39,9 +39,9 @@
     </p>
     <table style="margin-top:8px;">
       <tbody>
-        <tr><td class="muted">Claimed by</td><td>{{ status_info.claimed_by or '—' }}{% if status_info.claimed_at %} <span class="muted" style="font-size:11px;">({{ status_info.claimed_at }})</span>{% endif %}</td></tr>
-        <tr><td class="muted">Contained</td><td>{{ status_info.contained_at or '—' }}</td></tr>
-        <tr><td class="muted">Closed</td><td>{{ status_info.closed_at or '—' }}</td></tr>
+        <tr><td class="muted">Claimed by</td><td>{{ status_info.claimed_by or '-' }}{% if status_info.claimed_at %} <span class="muted" style="font-size:11px;">({{ status_info.claimed_at }})</span>{% endif %}</td></tr>
+        <tr><td class="muted">Contained</td><td>{{ status_info.contained_at or '-' }}</td></tr>
+        <tr><td class="muted">Closed</td><td>{{ status_info.closed_at or '-' }}</td></tr>
       </tbody>
     </table>
 
@@ -78,13 +78,40 @@
       <div style="padding:6px 0; border-bottom:1px solid var(--border);">
         <span class="badge status-{{ h.status }}">{{ h.status.replace('_', ' ') }}</span>
         {% if h.disposition %}<span class="badge disposition-{{ h.disposition }}">{{ h.disposition.replace('_', ' ') }}</span>{% endif %}
-        <span class="muted"> — {{ h.action }} by {{ h.actor }} — {{ h.ts }}</span>
+        <span class="muted"> - {{ h.action }} by {{ h.actor }} - {{ h.ts }}</span>
         {% if h.note %}<div class="muted" style="margin-top:2px;">{{ h.note }}</div>{% endif %}
       </div>
       {% endfor %}
     </div>
     {% endif %}
   </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="afxShowTab('tab-ticket', this)">AI Report</button>
+  <button class="tab-btn" onclick="afxShowTab('tab-graph', this)">Process Graph</button>
+  <button class="tab-btn" onclick="afxShowTab('tab-json', this)">Raw JSON</button>
+</div>
+
+<div id="tab-ticket" class="tab-panel">
+  <div class="panel">
+    <h2>AI-Assembled Incident Ticket</h2>
+    <p style="margin:-6px 0 14px 0;">
+      <a href="/incidents/{{ incident.id }}/ticket.pdf" class="btn">Download PDF</a>
+    </p>
+    {% if ticket_error %}
+    <div class="alert-banner" style="border-color:#ef4b6a;">
+      Could not render ticket.md for this incident: {{ ticket_error }}
+    </div>
+    {% elif ticket_html %}
+    <div class="ticket-render">{{ ticket_html|safe }}</div>
+    {% else %}
+    <p class="muted">No ticket available for this incident yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tab-graph" class="tab-panel" style="display:none;">
   <div class="panel">
     <h2>Legend</h2>
     <div class="legend">
@@ -95,16 +122,44 @@
     </div>
     <p class="muted" style="font-size:12px; margin-top:10px;">Click any node to open its full entity page (process lineage, args, timestamps, and a Kill action if it's still running).</p>
   </div>
+
+  <div class="panel">
+    <h2>Process Ancestry Chain</h2>
+    <div id="lineage-graph" class="graph-canvas"></div>
+  </div>
 </div>
 
-<div class="panel">
-  <h2>Process Ancestry Chain</h2>
-  <div id="lineage-graph" class="graph-canvas"></div>
+<div id="tab-json" class="tab-panel" style="display:none;">
+  <div class="panel">
+    <h2>Raw Incident JSON</h2>
+    <pre style="white-space:pre-wrap; word-break:break-all; max-height:640px; overflow:auto;">{{ incident_json }}</pre>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/cytoscape.min.js"></script>
 <script src="/static/app.js"></script>
-<script>renderLineageGraph('lineage-graph', '/api/incidents/{{ incident.id }}/graph.json');</script>
+<script>
+  // Lazy Cytoscape init: only render the graph the first time its tab is
+  // actually shown. Initializing Cytoscape inside a display:none element
+  // gives it a 0x0 container - the classic "blank graph" bug - so this
+  // flag gates renderLineageGraph() to run exactly once, on demand.
+  var _afxGraphRendered = false;
+
+  function afxShowTab(id, btn) {
+    document.querySelectorAll('.tab-panel').forEach(function (el) {
+      el.style.display = (el.id === id) ? '' : 'none';
+    });
+    document.querySelectorAll('.tab-btn').forEach(function (el) {
+      el.classList.remove('active');
+    });
+    btn.classList.add('active');
+
+    if (id === 'tab-graph' && !_afxGraphRendered) {
+      _afxGraphRendered = true;
+      renderLineageGraph('lineage-graph', '/api/incidents/{{ incident.id }}/graph.json');
+    }
+  }
+</script>
 {% endblock %}
