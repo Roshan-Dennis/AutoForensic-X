@@ -1,0 +1,11 @@
+[Unit]
+Description=AutoForensic-X threat-intel enrichment (one-shot, run by afx-ti-enricher.timer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=autoforensic
+WorkingDirectory=/home/autoforensic/provenance-graph
+EnvironmentFile=/home/autoforensic/.afx.env
+ExecStart=/home/autoforensic/afx-venv/bin/python3 /home/autoforensic/provenance-graph/ti_enricher.py

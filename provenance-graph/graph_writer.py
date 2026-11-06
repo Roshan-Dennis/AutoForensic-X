@@ -318,3 +318,95 @@ class GraphWriter:
             "%d retries - dropping (sha256=%s)",
             exec_id, retries, sha256,
         )
+
+
+    # ------------------------------------------------------------------
+    # Threat-intel enrichment (ti_enricher.py)
+    # ------------------------------------------------------------------
+
+    def get_alert_srcips(self) -> list[str]:
+        """Returns every distinct non-null Alert.srcip currently in the
+        graph - the candidate set ti_enricher.py decides whether to
+        (re-)enrich."""
+        with self.driver.session() as session:
+            result = session.run(
+                "MATCH (a:Alert) WHERE a.srcip IS NOT NULL "
+                "RETURN DISTINCT a.srcip AS ip"
+            )
+            return [record["ip"] for record in result]
+
+    def get_ioc_status(self) -> dict:
+        """Returns {ip: {"verdict": str, "checked_at": datetime|None}}
+        for every existing IoC node, so ti_enricher.py can skip anything
+        already fresh (within its TTL) or permanently marked 'internal'
+        without spending API quota re-checking it."""
+        with self.driver.session() as session:
+            result = session.run(
+                "MATCH (i:IoC) RETURN i.value AS ip, i.verdict AS verdict, "
+                "i.checked_at AS checked_at"
+            )
+            out = {}
+            for record in result:
+                checked_at = record["checked_at"]
+                if checked_at is not None and hasattr(checked_at, "to_native"):
+                    checked_at = checked_at.to_native()
+                out[record["ip"]] = {"verdict": record["verdict"], "checked_at": checked_at}
+            return out
+
+    def upsert_ioc(self, ip: str, data: dict) -> None:
+        """Writes one IoC node (currently IP-type only) from
+        ti_enricher.py's composite-verdict dict - see that module's
+        build_composite() / enrich_ip() for the shape of `data`."""
+        with self.driver.session() as session:
+            session.run(
+                """
+                MERGE (i:IoC {value: $ip})
+                ON CREATE SET i.type = 'ip'
+                SET
+                    i.verdict = $verdict,
+                    i.confidence = $confidence,
+                    i.summary = $summary,
+                    i.sources_checked = $sources_checked,
+                    i.sources_flagged = $sources_flagged,
+                    i.abuseipdb_score = $abuseipdb_score,
+                    i.abuseipdb_reports = $abuseipdb_reports,
+                    i.otx_pulse_count = $otx_pulse_count,
+                    i.virustotal_malicious = $virustotal_malicious,
+                    i.virustotal_suspicious = $virustotal_suspicious,
+                    i.threatfox_malware = $threatfox_malware,
+                    i.threatfox_confidence = $threatfox_confidence,
+                    i.checked_at = $checked_at
+                """,
+                ip=ip,
+                verdict=data.get("verdict"),
+                confidence=data.get("confidence"),
+                summary=data.get("summary"),
+                sources_checked=data.get("sources_checked", []),
+                sources_flagged=data.get("sources_flagged", []),
+                abuseipdb_score=data.get("abuseipdb_score"),
+                abuseipdb_reports=data.get("abuseipdb_reports"),
+                otx_pulse_count=data.get("otx_pulse_count"),
+                virustotal_malicious=data.get("virustotal_malicious"),
+                virustotal_suspicious=data.get("virustotal_suspicious"),
+                threatfox_malware=data.get("threatfox_malware"),
+                threatfox_confidence=data.get("threatfox_confidence"),
+                checked_at=data.get("checked_at"),
+            )
+
+    def link_iocs_to_alerts(self) -> int:
+        """Idempotent MERGE pass: attaches an INVOLVES_IOC edge from
+        every Alert to the IoC node matching its srcip. Safe/cheap to
+        run on every ti_enricher.py pass regardless of what was just
+        enriched - covers Alert nodes that arrived after their IP
+        already had a fresh IoC node from a previous pass."""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (i:IoC)
+                MATCH (a:Alert {srcip: i.value})
+                MERGE (a)-[:INVOLVES_IOC]->(i)
+                RETURN count(*) AS linked
+                """
+            )
+            record = result.single()
+            return record["linked"] if record else 0
