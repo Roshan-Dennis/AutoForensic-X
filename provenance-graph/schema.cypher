@@ -26,3 +26,10 @@ FOR (a:Alert) ON (a.srcip);
 
 CREATE CONSTRAINT file_sha256 IF NOT EXISTS
 FOR (f:File) REQUIRE f.sha256 IS UNIQUE;
+
+// --- IoC nodes (ti_enricher.py) ---
+CREATE CONSTRAINT ioc_value IF NOT EXISTS
+FOR (i:IoC) REQUIRE i.value IS UNIQUE;
+
+CREATE INDEX ioc_checked_at IF NOT EXISTS
+FOR (i:IoC) ON (i.checked_at);
