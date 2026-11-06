@@ -1,0 +1,15 @@
+[Unit]
+Description=AutoForensic-X Target process-image file hasher
+After=network.target tetragon.service
+Wants=tetragon.service
+
+[Service]
+Type=simple
+User=afx-filehasher
+WorkingDirectory=/opt/afx
+ExecStart=/usr/bin/python3 /opt/afx/file_hasher.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
