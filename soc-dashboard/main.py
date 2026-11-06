@@ -29,7 +29,7 @@ import json
 import urllib.parse
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -40,6 +40,10 @@ import notes
 import playbooks
 import queries
 import sigma_rules
+
+import markdown as md_lib
+from generate_ticket import generate_ticket
+from weasyprint import HTML as WeasyHTML
 
 
 def _json_safe(obj):
@@ -125,6 +129,18 @@ def incident_detail(request: Request, incident_id: str, error: str | None = None
     if incident is None:
         return HTMLResponse(f"Incident '{incident_id}' not found.", status_code=404)
     status_info = notes.get(incident_id)
+
+    ticket_html = None
+    ticket_error = None
+    try:
+        ticket_html = md_lib.markdown(
+            generate_ticket(incident_id), extensions=["tables", "fenced_code", "nl2br"]
+        )
+    except Exception as e:
+        ticket_error = str(e)
+
+    incident_json = json.dumps(_json_safe(incident), indent=2, default=str)
+
     return render(
         request,
         "incident_detail.html",
@@ -134,6 +150,53 @@ def incident_detail(request: Request, incident_id: str, error: str | None = None
         statuses=notes.STATUSES,
         dispositions=notes.DISPOSITIONS,
         error=error,
+        ticket_html=ticket_html,
+        ticket_error=ticket_error,
+        incident_json=incident_json,
+    )
+
+
+# PDF export of ticket.md - same markdown source as the AI Report tab,
+# run through a minimal print CSS and WeasyPrint. Built as plain string
+# concatenation (not .format()) because ticket markdown can legitimately
+# contain literal { } characters (process arguments, raw command detail)
+# that would otherwise be misread as format placeholders.
+_PDF_CSS = """
+<style>
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #11151d; font-size: 11px; line-height: 1.5; }
+  h1 { font-size: 20px; border-bottom: 2px solid #3ddc97; padding-bottom: 6px; }
+  h2 { font-size: 15px; margin-top: 22px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 10px; }
+  th, td { border: 1px solid #ccc; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  code, pre { font-family: "SFMono-Regular", Consolas, monospace; }
+  pre { background: #f6f6f6; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; font-size: 9.5px; }
+  @page { size: Letter; margin: 1.6cm; }
+</style>
+"""
+
+
+@app.get("/incidents/{incident_id}/ticket.pdf")
+def incident_ticket_pdf(incident_id: str):
+    incident = queries.find_incident(incident_id)
+    if incident is None:
+        return HTMLResponse(f"Incident '{incident_id}' not found.", status_code=404)
+
+    try:
+        ticket_markdown = generate_ticket(incident_id)
+    except Exception as e:
+        return HTMLResponse(f"Could not generate ticket for PDF export: {e}", status_code=500)
+
+    body_html = md_lib.markdown(ticket_markdown, extensions=["tables", "fenced_code", "nl2br"])
+    full_html = "<html><head><meta charset='utf-8'>" + _PDF_CSS + "</head><body>" + body_html + "</body></html>"
+
+    pdf_bytes = WeasyHTML(string=full_html).write_pdf()
+    filename = incident_id.replace("/", "_") + "-ticket.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

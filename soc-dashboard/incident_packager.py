@@ -88,6 +88,24 @@ def _ordered_process_chain(lineage: dict | None) -> list[dict]:
     return ordered
 
 
+def _ioc_for_srcip(srcip: str | None) -> dict | None:
+    """Looks up the IoC node (written by ti_enricher.py) matching an
+    Alert's srcip, if one exists yet. Returns None rather than a
+    partially-filled dict when there's no srcip or no IoC node at all -
+    callers (generate_ticket.py) treat None as 'not yet enriched' and
+    render a fallback message rather than guessing at missing fields."""
+    if not srcip:
+        return None
+    return db.run_one(
+        """
+        MATCH (i:IoC {value: $srcip})
+        RETURN i.verdict AS verdict, i.confidence AS confidence,
+               i.summary AS summary, i.checked_at AS checked_at
+        """,
+        srcip=srcip,
+    )
+
+
 def _remediation_history(incident: dict, process_chain: list[dict]) -> list[dict]:
     """Match SOAR audit-log events to this incident by IP (SSH-bruteforce
     style) or by exec_id appearing anywhere in the process chain
@@ -128,6 +146,7 @@ def build_package(incident_id: str) -> dict:
 
     host = _host_for_exec_id(focus_exec_id) or incident.get("agent_name")
     remediation = _remediation_history(incident, process_chain)
+    ioc = _ioc_for_srcip(incident.get("srcip"))
 
     return {
         "incident_id": incident_id,
@@ -146,6 +165,7 @@ def build_package(incident_id: str) -> dict:
         "raw_detail": incident.get("detail"),
         "root_cause_process_chain": process_chain,
         "remediation_history": remediation,
+        "ioc": ioc,
     }
 
 

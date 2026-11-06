@@ -34,6 +34,8 @@ from jinja2 import Template
 
 from incident_packager import SAVE_DIR, build_package
 
+import notes
+
 # Priority and asset criticality are now computed once, at ingest
 # time, in provenance-graph/graph_writer.py (with a computed
 # fallback in soc-dashboard/queries.py for older Alert nodes), and
@@ -56,8 +58,9 @@ TICKET_TEMPLATE = """\
 | MITRE Technique(s) | {{ p.mitre_technique }} |
 | MITRE Tactic(s) | {{ p.mitre_tactic }} |
 | Detection source | {{ source_plain }} |
-| Status | Open — claim/contain/close ticket workflow not yet implemented in the console (see roadmap) |
-| Disposition | Pending analyst triage |
+| Status | {{ status.status.replace('_', ' ')|capitalize }} |
+| Disposition | {% if status.disposition %}{{ status.disposition.replace('_', ' ')|capitalize }}{% else %}Pending analyst triage{% endif %} |
+| Claimed by | {{ status.claimed_by or 'Unclaimed' }} |
 
 ## 2. Executive Summary
 {{ executive_summary }}
@@ -65,7 +68,7 @@ TICKET_TEMPLATE = """\
 ## 3. Triage
 - **Corroborating telemetry sources:** {{ p.corroborations }}
 - **Entry point:** `{{ p.entry_point }}`
-- **Disposition:** Pending analyst triage — the console does not yet have a disposition field (true positive / false positive / benign / duplicate) wired up; this incident is real lab data from a deliberately executed attack technique, not a live triage decision.
+- **Disposition:** {% if status.disposition %}{{ status.disposition.replace('_', ' ')|capitalize }}{% if status.closed_at %} (closed {{ status.closed_at }}){% endif %}{% else %}Pending analyst triage ({{ status.status.replace('_', ' ') }}){% endif +%}
 
 ## 4. Timeline
 | Timestamp | Event |
@@ -87,6 +90,13 @@ TICKET_TEMPLATE = """\
 ## 6. Indicators of Compromise
 - **Entry-point binary:** `{{ p.entry_point }}`
 - **Source IP:** {{ p.srcip or 'not recorded (internally correlated detection, no external source IP captured for this event)' }}
+{% if p.srcip -%}
+{% if p.ioc -%}
+- **Threat-intel verdict:** **{{ p.ioc.verdict|upper }}** (confidence {{ p.ioc.confidence }}) - {{ p.ioc.summary }}
+{% else -%}
+- **Threat-intel verdict:** Not yet enriched - afx-ti-enricher.timer runs every 15 minutes
+{% endif -%}
+{% endif %}
 - **Host:** {{ p.host }}
 {% if p.raw_detail -%}
 - **Raw command/detail (verbatim from telemetry):**
@@ -195,6 +205,7 @@ def _build_timeline(package: dict) -> list[dict]:
 
 def generate_ticket(incident_id: str) -> str:
     package = build_package(incident_id)
+    status = notes.get(incident_id)
     folder = SAVE_DIR / incident_id.replace("/", "_")
 
     narrative = _read_optional(
@@ -235,6 +246,7 @@ def generate_ticket(incident_id: str) -> str:
         sigma_valid=sigma_valid,
         remediation_lines=_remediation_lines(package),
         timeline=_build_timeline(package),
+        status=status,
     )
 
 
