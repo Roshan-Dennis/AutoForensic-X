@@ -1,0 +1,17 @@
+[Unit]
+Description=AutoForensic-X Target file-hash ingest (pulls from Target via SSH)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autoforensic
+WorkingDirectory=/home/autoforensic/provenance-graph
+EnvironmentFile=/home/autoforensic/.afx.env
+Environment="FILEHASH_CMD=ssh -T -i /home/autoforensic/.ssh/afx_filehash -o IdentitiesOnly=yes -o BatchMode=yes -o ServerAliveInterval=15 afx-sensor@192.168.56.101"
+ExecStart=/home/autoforensic/afx-venv/bin/python3 /home/autoforensic/provenance-graph/ingest_file_hashes.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

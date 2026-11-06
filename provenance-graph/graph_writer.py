@@ -6,6 +6,7 @@ talking to Neo4j directly, so the graph schema lives in exactly one place.
 """
 
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -262,33 +263,58 @@ class GraphWriter:
         imphash: Optional[str],
         path: Optional[str],
         first_seen_str: Optional[str],
+        retries: int = 5,
+        retry_delay: float = 0.3,
     ) -> None:
         """Attaches a File node (identified by sha256, the canonical
         hash for this purpose) to the Process already upserted under
         exec_id, via a HAS_IMAGE edge. Used by file_hasher_dc.py for
-        DC's Sysmon Event ID 1 process-image hashes. Target-side
-        (Tetragon) file hashing is a separate, not-yet-built piece
-        (needs its own gRPC-stream tailer - Tetragon doesn't carry
-        Sysmon-style hash data)."""
+        DC's Sysmon Event ID 1 process-image hashes, and by
+        ingest_file_hashes.py for Target's Tetragon-exec image hashes.
+
+        Deliberately MATCHes the Process node rather than MERGE-ing
+        it - Target's two independent SSH pipelines (ingest_tetragon.py
+        and ingest_file_hashes.py) race to write the same exec_id with
+        no ordering guarantee, and a blind MERGE here would create a
+        bare placeholder Process node whenever this one arrived first,
+        which upsert_process()'s own MERGE ... ON CREATE SET would
+        then never populate (ON CREATE only fires once, on first
+        creation). Retries briefly since the race is normally resolved
+        within well under a second; a hash whose Process node never
+        shows up (should only happen under the Target race - DC's
+        sequential path never hits this) is logged and dropped rather
+        than corrupting the graph with a bare node."""
         if not sha256:
             return
         first_seen = _parse_ts(first_seen_str)
-        with self.driver.session() as session:
-            session.run(
-                """
-                MERGE (f:File {sha256: $sha256})
-                ON CREATE SET
-                    f.md5 = $md5,
-                    f.imphash = $imphash,
-                    f.path = $path,
-                    f.first_seen = $first_seen
-                MERGE (p:Process {exec_id: $exec_id})
-                MERGE (p)-[:HAS_IMAGE]->(f)
-                """,
-                sha256=sha256,
-                md5=md5,
-                imphash=imphash,
-                path=path,
-                first_seen=first_seen,
-                exec_id=exec_id,
-            )
+        for attempt in range(retries):
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (p:Process {exec_id: $exec_id})
+                    MERGE (f:File {sha256: $sha256})
+                    ON CREATE SET
+                        f.md5 = $md5,
+                        f.imphash = $imphash,
+                        f.path = $path,
+                        f.first_seen = $first_seen
+                    MERGE (p)-[:HAS_IMAGE]->(f)
+                    RETURN count(p) AS matched
+                    """,
+                    sha256=sha256,
+                    md5=md5,
+                    imphash=imphash,
+                    path=path,
+                    first_seen=first_seen,
+                    exec_id=exec_id,
+                )
+                record = result.single()
+                if record and record["matched"] > 0:
+                    return
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+        log.warning(
+            "upsert_file_hash: no Process node found for exec_id=%s after "
+            "%d retries - dropping (sha256=%s)",
+            exec_id, retries, sha256,
+        )
